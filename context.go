@@ -114,6 +114,7 @@ func (rc *RequestContext) ContinueRequest() error {
 }
 
 func (rc *RequestContext) CancelRequest(status int32, headers map[string]string, body string) error {
+	log.Printf("Cancelling request: %d, %v, %s", status, headers, body)
 	rc.AppendHeaders(headers)
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = &extprocv3.ImmediateResponse{

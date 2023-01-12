@@ -8,7 +8,7 @@ import (
 type echoRequestProcessor struct{}
 
 func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
-	switch ctx.method {
+	switch ctx.Method {
 	// cancel request when there is no body
 	case "HEAD":
 	case "OPTIONS":
