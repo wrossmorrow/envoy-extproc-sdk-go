@@ -63,14 +63,14 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		resp, err := processPhase(req, *(s.processor), rc)
 
 		if err != nil {
-			log.Printf("processing error %v", err)
+			log.Printf("Phase processing error %v", err)
 		} else if resp == nil {
-			log.Printf("processing did not define response")
+			log.Printf("Phase processing did not define a response")
 			// TODO: what here?
 		} else {
-			log.Printf("extprocv3.ProcessingResponse %v \n", resp)
+			log.Printf("Sending ProcessingResponse: %v \n", resp)
 			if err := srv.Send(resp); err != nil {
-				log.Printf("send error %v", err)
+				log.Printf("Send error %v", err)
 			}
 		}
 
@@ -85,7 +85,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 	)
 
 	if rc == nil {
-		log.Printf("Request context is nil\n")
+		log.Printf("WARNING: RequestContext is undefined (nil)\n")
 	}
 
 	phase := REQUEST_PHASE_UNDETERMINED
@@ -94,7 +94,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_RequestHeaders:
 		phase = REQUEST_PHASE_REQUEST_HEADERS
-		log.Printf("extprocv3.ProcessingRequest_RequestHeaders %v \n", v)
+		log.Printf("Processing Request Headers: %v \n", v)
 		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
 
 		// initialize request context (requires _not_ skipping request headers)
@@ -108,7 +108,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_RequestBody:
 		phase = REQUEST_PHASE_REQUEST_BODY
-		log.Printf("Processing Request Body %v \n", v)
+		log.Printf("Processing Request Body: %v \n", v)
 		b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
 		rc.EndOfStream = b.EndOfStream
 
@@ -119,7 +119,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
 		phase = REQUEST_PHASE_REQUEST_TRAILERS
-		log.Printf("Processing Request Trailers %v \n", v)
+		log.Printf("Processing Request Trailers: %v \n", v)
 		ts := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
 
 		trailers := make(map[string][]string)
@@ -134,7 +134,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		phase = REQUEST_PHASE_RESPONSE_HEADERS
-		log.Printf("Processing Response Headers %v \n", v)
+		log.Printf("Processing Response Headers: %v \n", v)
 		hs := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
 		rc.EndOfStream = hs.EndOfStream
 
@@ -150,7 +150,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
 		phase = REQUEST_PHASE_RESPONSE_BODY
-		log.Printf("Processing Response Body %v \n", v)
+		log.Printf("Processing Response Body: %v \n", v)
 		b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
@@ -161,7 +161,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
 		phase = REQUEST_PHASE_RESPONSE_TRAILERS
-		log.Printf("Processing Response Trailers %v \n", v)
+		log.Printf("Processing Response Trailers: %v \n", v)
 		ts := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
 
 		trailers := make(map[string][]string)

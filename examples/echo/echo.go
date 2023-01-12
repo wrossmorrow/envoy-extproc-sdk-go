@@ -20,14 +20,19 @@ func joinHeaders(mvhs map[string][]string) map[string]string {
 func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	log.Printf("Method: %s", ctx.Method)
 
-	switch ctx.Method {
-	// cancel request when there is no body
-	case "HEAD", "OPTIONS", "GET", "DELETE":
+	if ctx.EndOfStream {
 		return ctx.CancelRequest(200, joinHeaders(ctx.Headers), "")
-	default:
-		break
 	}
 	return ctx.ContinueRequest()
+
+	// switch ctx.Method {
+	// // cancel request when there is no body
+	// case "HEAD", "OPTIONS", "GET", "DELETE":
+	// 	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), "")
+	// default:
+	// 	break
+	// }
+	// return ctx.ContinueRequest()
 }
 
 func (s echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
