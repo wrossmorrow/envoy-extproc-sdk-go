@@ -2,7 +2,8 @@ package extproc
 
 import (
 	"errors"
-	"strconv"
+	"strings"
+	// "strconv"
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -10,15 +11,34 @@ import (
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 )
 
+const (
+	REQUEST_PHASE_UNDETERMINED      = 0
+	REQUEST_PHASE_REQUEST_HEADERS   = 1
+	REQUEST_PHASE_REQUEST_BODY      = 2
+	REQUEST_PHASE_REQUEST_TRAILERS  = 3
+	REQUEST_PHASE_RESPONSE_HEADERS  = 4
+	REQUEST_PHASE_RESPONSE_BODY     = 5
+	REQUEST_PHASE_RESPONSE_TRAILERS = 6
+)
+
+type PhaseResponse struct {
+	headerMutation    *extprocv3.HeaderMutation    // any response
+	bodyMutation      *extprocv3.BodyMutation      // body responses
+	continueRequest   *extprocv3.CommonResponse    // headers/body responses
+	immediateResponse *extprocv3.ImmediateResponse // headers/body responses
+}
+
 type RequestContext struct {
 	scheme    string
 	authority string
 	method    string
 	path      string
 	requestId string
+	headers   map[string][]string
 	started   int64
 	duration  int64
 	data      map[string]interface{}
+	response  PhaseResponse
 }
 
 func NewReqCtx(headers *corev3.HeaderMap) (*RequestContext, error) {
@@ -27,7 +47,13 @@ func NewReqCtx(headers *corev3.HeaderMap) (*RequestContext, error) {
 
 	rc.started = time.Now().UnixNano()
 	rc.duration = 0
+	rc.headers = make(map[string][]string)
+
+	// for custom data between phases
 	rc.data = make(map[string]interface{})
+
+	// for stream phase responses (convenience)
+	rc.ResetResponse()
 
 	for _, h := range headers.Headers {
 		switch h.Key {
@@ -47,6 +73,7 @@ func NewReqCtx(headers *corev3.HeaderMap) (*RequestContext, error) {
 			rc.requestId = h.Value
 			break
 		default:
+			rc.headers[h.Key] = strings.Split(h.Value, ",")
 			break
 		}
 	}
@@ -67,41 +94,125 @@ func (rc *RequestContext) SetValue(name string, val interface{}) error {
 	return nil
 }
 
-func (rc *RequestContext) StartedHeader() (*corev3.HeaderValueOption, error) {
-	return &corev3.HeaderValueOption{
-		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-		Header: &corev3.HeaderValue{
-			Key:   "x-extproc-started",
-			Value: string(strconv.FormatInt(rc.started, 10)),
-		},
-	}, nil
+func (rc *RequestContext) ResetResponse() error {
+	rc.response.headerMutation = &extprocv3.HeaderMutation{}
+	rc.response.bodyMutation = &extprocv3.BodyMutation{}
+	rc.response.continueRequest = nil
+	rc.response.immediateResponse = nil
+	return nil
 }
 
-func (rc *RequestContext) DurationHeader() (*corev3.HeaderValueOption, error) {
-	return &corev3.HeaderValueOption{
-		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-		Header: &corev3.HeaderValue{
-			Key:   "x-extproc-duration",
-			Value: string(strconv.FormatInt(rc.duration, 10)),
-		},
-	}, nil
+func (rc *RequestContext) ContinueRequest() error {
+	if rc.response.immediateResponse != nil {
+		rc.response.immediateResponse = nil
+		rc.response.continueRequest = &extprocv3.CommonResponse{
+			// status?
+			HeaderMutation: rc.response.headerMutation,
+			BodyMutation:   rc.response.bodyMutation,
+			// trailers?
+		}
+	}
+	return nil
 }
 
-func (rc *RequestContext) FormCommonResponse() (*extprocv3.CommonResponse, error) {
-	return &extprocv3.CommonResponse{HeaderMutation: &extprocv3.HeaderMutation{}}, nil
-}
-
-func (rc *RequestContext) FormImmediateResponse(status int32, body string) (*extprocv3.ImmediateResponse, error) {
-	return &extprocv3.ImmediateResponse{
+func (rc *RequestContext) CancelRequest(status int32, headers map[string]string, body string) error {
+	rc.AppendHeaders(headers)
+	rc.response.continueRequest = nil
+	rc.response.immediateResponse = &extprocv3.ImmediateResponse{
 		Status: &typev3.HttpStatus{
 			Code: typev3.StatusCode(status),
 		},
-		Headers: &extprocv3.HeaderMutation{},
+		Headers: rc.response.headerMutation,
 		Body:    body,
-	}, nil
+	}
+	return nil
 }
 
-func (rc *RequestContext) AddHeader(hm *extprocv3.HeaderMutation, name string, value string, action string) error {
+func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
+
+	// handle immediate responses
+	if rc.response.immediateResponse != nil {
+		switch phase {
+		case REQUEST_PHASE_REQUEST_HEADERS:
+		case REQUEST_PHASE_REQUEST_BODY:
+		case REQUEST_PHASE_RESPONSE_HEADERS:
+		case REQUEST_PHASE_RESPONSE_BODY:
+			return &extprocv3.ProcessingResponse{
+				Response: &extprocv3.ProcessingResponse_ImmediateResponse{
+					ImmediateResponse: rc.response.immediateResponse,
+				},
+			}, nil
+		// trailers phases don't have an ImmediateResponse option
+		// (only changes to headers permitted)
+		default:
+			break
+		}
+	}
+
+	// handle "common" responses
+
+	// presume no-op if common response wrapper is not defined
+	if rc.response.continueRequest == nil {
+		rc.response.continueRequest = &extprocv3.CommonResponse{}
+	}
+
+	switch phase {
+	case REQUEST_PHASE_REQUEST_HEADERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_RequestHeaders{
+				RequestHeaders: &extprocv3.HeadersResponse{
+					Response: rc.response.continueRequest,
+				},
+			},
+		}, nil
+	case REQUEST_PHASE_REQUEST_BODY:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_RequestBody{
+				RequestBody: &extprocv3.BodyResponse{
+					Response: rc.response.continueRequest,
+				},
+			},
+		}, nil
+	case REQUEST_PHASE_REQUEST_TRAILERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_RequestTrailers{
+				RequestTrailers: &extprocv3.TrailersResponse{
+					HeaderMutation: rc.response.headerMutation,
+				},
+			},
+		}, nil
+	case REQUEST_PHASE_RESPONSE_HEADERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_ResponseHeaders{
+				ResponseHeaders: &extprocv3.HeadersResponse{
+					Response: rc.response.continueRequest,
+				},
+			},
+		}, nil
+	case REQUEST_PHASE_RESPONSE_BODY:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_ResponseBody{
+				ResponseBody: &extprocv3.BodyResponse{
+					Response: rc.response.continueRequest,
+				},
+			},
+		}, nil
+	case REQUEST_PHASE_RESPONSE_TRAILERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_ResponseTrailers{
+				ResponseTrailers: &extprocv3.TrailersResponse{
+					HeaderMutation: rc.response.headerMutation,
+				},
+			},
+		}, nil
+	default:
+		return nil, errors.New("unknown request phase")
+	}
+
+}
+
+func (rc *RequestContext) UpdateHeader(name string, value string, action string) error {
+	hm := rc.response.headerMutation
 	h := &corev3.HeaderValueOption{
 		Header: &corev3.HeaderValue{Key: name, Value: value},
 		AppendAction: corev3.HeaderValueOption_HeaderAppendAction(
@@ -112,7 +223,20 @@ func (rc *RequestContext) AddHeader(hm *extprocv3.HeaderMutation, name string, v
 	return nil
 }
 
-func (rc *RequestContext) AddHeaders(hm *extprocv3.HeaderMutation, headers map[string]string, action string) error {
+func (rc *RequestContext) AppendHeader(name string, value string) error {
+	return rc.UpdateHeader(name, value, "APPEND_IF_EXISTS_OR_ADD")
+}
+
+func (rc *RequestContext) AddHeader(name string, value string) error {
+	return rc.UpdateHeader(name, value, "ADD_IF_ABSENT")
+}
+
+func (rc *RequestContext) OverwriteHeader(name string, value string) error {
+	return rc.UpdateHeader(name, value, "OVERWRITE_IF_EXISTS_OR_ADD")
+}
+
+func (rc *RequestContext) UpdateHeaders(headers map[string]string, action string) error {
+	hm := rc.response.headerMutation
 	a := corev3.HeaderValueOption_HeaderAppendAction(
 		corev3.HeaderValueOption_HeaderAppendAction_value[action],
 	)
@@ -126,14 +250,28 @@ func (rc *RequestContext) AddHeaders(hm *extprocv3.HeaderMutation, headers map[s
 	return nil
 }
 
-func (rc *RequestContext) RemoveHeader(hm *extprocv3.HeaderMutation, name string) error {
+func (rc *RequestContext) AppendHeaders(headers map[string]string) error {
+	return rc.UpdateHeaders(headers, "APPEND_IF_EXISTS_OR_ADD")
+}
+
+func (rc *RequestContext) AddHeaders(headers map[string]string) error {
+	return rc.UpdateHeaders(headers, "ADD_IF_ABSENT")
+}
+
+func (rc *RequestContext) OverwriteHeaders(headers map[string]string) error {
+	return rc.UpdateHeaders(headers, "OVERWRITE_IF_EXISTS_OR_ADD")
+}
+
+func (rc *RequestContext) RemoveHeader(name string) error {
+	hm := rc.response.headerMutation
 	if !StrInSlice(hm.RemoveHeaders, name) {
 		hm.RemoveHeaders = append(hm.RemoveHeaders, name)
 	}
 	return nil
 }
 
-func (rc *RequestContext) RemoveHeaders(hm *extprocv3.HeaderMutation, headers ...string) error {
+func (rc *RequestContext) RemoveHeaders(headers ...string) error {
+	hm := rc.response.headerMutation
 	for _, h := range headers {
 		if !StrInSlice(hm.RemoveHeaders, h) {
 			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
@@ -142,18 +280,22 @@ func (rc *RequestContext) RemoveHeaders(hm *extprocv3.HeaderMutation, headers ..
 	return nil
 }
 
-func (rc *RequestContext) ContinueRequest() error {
-	return nil
-}
+// func (rc *RequestContext) StartedHeader() (*corev3.HeaderValueOption, error) {
+// 	return &corev3.HeaderValueOption{
+// 		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+// 		Header: &corev3.HeaderValue{
+// 			Key:   "x-extproc-started",
+// 			Value: string(strconv.FormatInt(rc.started, 10)),
+// 		},
+// 	}, nil
+// }
 
-func (rc *RequestContext) CancelRequest(status int32, body string) error {
-	return nil
-}
-
-func (rc *RequestContext) ResetResponse(phase int) error {
-	return nil
-}
-
-func (rc *RequestContext) GetResponse() error {
-	return nil
-}
+// func (rc *RequestContext) DurationHeader() (*corev3.HeaderValueOption, error) {
+// 	return &corev3.HeaderValueOption{
+// 		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+// 		Header: &corev3.HeaderValue{
+// 			Key:   "x-extproc-duration",
+// 			Value: string(strconv.FormatInt(rc.duration, 10)),
+// 		},
+// 	}, nil
+// }

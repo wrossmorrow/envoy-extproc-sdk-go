@@ -7,30 +7,28 @@ import (
 
 type trivialRequestProcessor struct{}
 
-func (s trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) (*pb.CommonResponse, *pb.ImmediateResponse, error) {
-	cr, _ := ctx.FormCommonResponse() // TODO: don't ignore error
-	ctx.AddHeader(cr.HeaderMutation, "x-extproc-request", "seen", "OVERWRITE_IF_EXISTS_OR_ADD")
-	return cr, nil, nil
+func (s trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
+	ctx.AddHeader("x-extproc-request", "seen")
+	return ctx.ContinueRequest() // returns an error if response malformed
 }
 
-func (s trivialRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body *pb.HttpBody) (*pb.CommonResponse, *pb.ImmediateResponse, error) {
-	return &pb.CommonResponse{}, nil, nil
+func (s trivialRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
+	return nil
 }
 
-func (s trivialRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) (*pb.HeaderMutation, error) {
-	return &pb.HeaderMutation{}, nil
+func (s trivialRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
+	return nil
 }
 
-func (s trivialRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) (*pb.CommonResponse, *pb.ImmediateResponse, error) {
-	return &pb.CommonResponse{}, nil, nil
+func (s trivialRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
+	return nil
 }
 
-func (s trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) (*pb.CommonResponse, *pb.ImmediateResponse, error) {
-	cr, _ := ctx.FormCommonResponse() // TODO: don't ignore error
-	ctx.AddHeader(cr.HeaderMutation, "x-extproc-response", "seen", "OVERWRITE_IF_EXISTS_OR_ADD")
-	return cr, nil, nil
+func (s trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
+	ctx.AddHeader("x-extproc-response", "seen")
+	return ctx.ContinueRequest() // returns an error if response malformed
 }
 
-func (s trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) (*pb.HeaderMutation, error) {
-	return &pb.HeaderMutation{}, nil
+func (s trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
+	return nil
 }

@@ -27,7 +27,7 @@ func Serve(port int, processors map[string]RequestProcessor) {
 
 	for n, p := range processors {
 		log.Printf("Registering ExtProc \"%s\"\n", n)
-		extproc := &genericExtProcServer{
+		extproc := &GenericExtProcServer{
 			name:      n,
 			processor: &p,
 		}

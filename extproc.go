@@ -1,6 +1,7 @@
 package extproc
 
 import (
+	"errors"
 	"io"
 	"log"
 	"time"
@@ -12,25 +13,22 @@ import (
 )
 
 type RequestProcessor interface {
-	ProcessRequestHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
-	ProcessRequestBody(ctx *RequestContext, body *extprocv3.HttpBody) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
-	ProcessRequestTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) (*extprocv3.HeaderMutation, error)
-	ProcessResponseHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
-	ProcessResponseBody(ctx *RequestContext, body *extprocv3.HttpBody) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
-	ProcessResponseTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) (*extprocv3.HeaderMutation, error)
+	ProcessRequestHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) error
+	ProcessRequestBody(ctx *RequestContext, body *extprocv3.HttpBody) error
+	ProcessRequestTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) error
+	ProcessResponseHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) error
+	ProcessResponseBody(ctx *RequestContext, body *extprocv3.HttpBody) error
+	ProcessResponseTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) error
 }
 
-type genericExtProcServer struct {
+type GenericExtProcServer struct {
 	name      string
 	processor *RequestProcessor
 }
 
-func (s *genericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
+func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
 
-	var (
-		rc *RequestContext
-		ps time.Time
-	)
+	var rc *RequestContext
 
 	if s.processor == nil {
 		log.Fatalf("cannot process request stream without `processor` interface")
@@ -54,189 +52,111 @@ func (s *genericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			return status.Errorf(codes.Unknown, "cannot receive stream request: %v", err)
 		}
 
-		resp := &extprocv3.ProcessingResponse{}
-		switch v := req.Request.(type) {
+		// clear response in the context if defined
+		if rc != nil {
+			rc.ResetResponse()
+		}
+		resp, err := processPhase(req, *(s.processor), rc)
 
-		case *extprocv3.ProcessingRequest_RequestHeaders:
-			log.Printf("extprocv3.ProcessingRequest_RequestHeaders %v \n", v)
-			h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
-
-			// define the request context (requires not skipping request headers)
-			rc, err = NewReqCtx(h.Headers)
-
-			ps = time.Now()
-			cr, ir, err := (*s.processor).ProcessRequestHeaders(rc, h)
-			rc.duration += time.Since(ps).Nanoseconds()
-
-			if err != nil {
-				log.Printf("process error %v", err)
-			} else if ir != nil {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
-						ImmediateResponse: ir,
-					},
-				}
-			} else {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_RequestHeaders{
-						RequestHeaders: &extprocv3.HeadersResponse{
-							Response: cr,
-						},
-					},
-				}
+		if resp == nil {
+			log.Printf("processing did not define response")
+			// TODO: what here?
+		} else {
+			log.Printf("extprocv3.ProcessingResponse %v \n", resp)
+			if err := srv.Send(resp); err != nil {
+				log.Printf("send error %v", err)
 			}
-			break
-
-		case *extprocv3.ProcessingRequest_RequestBody:
-			log.Printf("Processing Request Body %v \n", v)
-			b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
-
-			ps = time.Now()
-			cr, ir, err := (*s.processor).ProcessRequestBody(rc, b)
-			rc.duration += time.Since(ps).Nanoseconds()
-
-			if err != nil {
-				log.Printf("process error %v", err)
-			} else if ir != nil {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
-						ImmediateResponse: ir,
-					},
-				}
-			} else {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_RequestBody{
-						RequestBody: &extprocv3.BodyResponse{
-							Response: cr,
-						},
-					},
-				}
-			}
-			break
-
-		case *extprocv3.ProcessingRequest_RequestTrailers:
-			log.Printf("Processing Request Trailers %v \n", v)
-			t := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
-
-			ps = time.Now()
-			hm, err := (*s.processor).ProcessRequestTrailers(rc, t)
-			rc.duration += time.Since(ps).Nanoseconds()
-
-			if err != nil {
-				log.Printf("process error %v", err)
-			} else {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_RequestTrailers{
-						RequestTrailers: &extprocv3.TrailersResponse{
-							HeaderMutation: hm,
-						},
-					},
-				}
-			}
-			break
-
-		case *extprocv3.ProcessingRequest_ResponseHeaders:
-			log.Printf("Processing Response Headers %v \n", v)
-			h := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
-
-			ps = time.Now()
-			cr, ir, err := (*s.processor).ProcessResponseHeaders(rc, h)
-			rc.duration += time.Since(ps).Nanoseconds()
-
-			// NOTE: do we need to append header with extproc duration?
-			// HeaderValueOption{
-			//		append_action: OVERWRITE_IF_EXISTS_OR_ADD,
-			//		Header{key: "x-extproc-duration", value: string(rc.duration)}
-			// }
-			//
-			// or
-			//
-			// dhvo, _ := rc.durationHeader()
-
-			if err != nil {
-				log.Printf("process error %v", err)
-			} else if ir != nil {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
-						ImmediateResponse: ir,
-					},
-				}
-			} else {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_ResponseHeaders{
-						ResponseHeaders: &extprocv3.HeadersResponse{
-							Response: cr,
-						},
-					},
-				}
-			}
-			break
-
-		case *extprocv3.ProcessingRequest_ResponseBody:
-			log.Printf("Processing Response Body %v \n", v)
-			b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
-
-			ps = time.Now()
-			cr, ir, err := (*s.processor).ProcessResponseBody(rc, b)
-			rc.duration += time.Since(ps).Nanoseconds()
-
-			// NOTE: do we need to append header with extproc duration?
-			// HeaderValueOption{
-			//		append_action: OVERWRITE_IF_EXISTS_OR_ADD,
-			//		Header{key: "x-extproc-duration", value: string(rc.duration)}
-			// }
-			//
-			// or
-			//
-			// dhvo, _ := rc.durationHeader()
-
-			if err != nil {
-				log.Printf("process error %v", err)
-			} else if ir != nil {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
-						ImmediateResponse: ir,
-					},
-				}
-			} else {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_ResponseBody{
-						ResponseBody: &extprocv3.BodyResponse{
-							Response: cr,
-						},
-					},
-				}
-			}
-			break
-
-		case *extprocv3.ProcessingRequest_ResponseTrailers:
-			log.Printf("Processing Response Trailers %v \n", v)
-			t := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
-
-			ps = time.Now()
-			hm, err := (*s.processor).ProcessResponseTrailers(rc, t)
-			rc.duration += time.Since(ps).Nanoseconds()
-
-			if err != nil {
-				log.Printf("process error %v", err)
-			} else {
-				resp = &extprocv3.ProcessingResponse{
-					Response: &extprocv3.ProcessingResponse_RequestTrailers{
-						RequestTrailers: &extprocv3.TrailersResponse{
-							HeaderMutation: hm,
-						},
-					},
-				}
-			}
-			break
-
-		default:
-			log.Printf("Unknown Request type %v\n", v)
 		}
 
-		log.Printf("extprocv3.ProcessingResponse %v \n", resp)
-		if err := srv.Send(resp); err != nil {
-			log.Printf("send error %v", err)
+	} // end for over stream messages
+}
+
+func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
+
+	var (
+		ps  time.Time
+		err error
+	)
+
+	phase := REQUEST_PHASE_UNDETERMINED
+
+	switch v := req.Request.(type) {
+
+	case *extprocv3.ProcessingRequest_RequestHeaders:
+		phase = REQUEST_PHASE_REQUEST_HEADERS
+		log.Printf("extprocv3.ProcessingRequest_RequestHeaders %v \n", v)
+		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
+
+		// define the request context (requires _not_ skipping request headers)
+		if rc != nil {
+			log.Printf("Request context is not nil in request headers phase")
 		}
+		rc, err = NewReqCtx(h.Headers)
+
+		ps = time.Now()
+		err = processor.ProcessRequestHeaders(rc, h)
+		rc.duration += time.Since(ps).Nanoseconds()
+		break
+
+	case *extprocv3.ProcessingRequest_RequestBody:
+		phase = REQUEST_PHASE_REQUEST_BODY
+		log.Printf("Processing Request Body %v \n", v)
+		b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
+
+		ps = time.Now()
+		err = processor.ProcessRequestBody(rc, b)
+		rc.duration += time.Since(ps).Nanoseconds()
+		break
+
+	case *extprocv3.ProcessingRequest_RequestTrailers:
+		phase = REQUEST_PHASE_REQUEST_TRAILERS
+		log.Printf("Processing Request Trailers %v \n", v)
+		t := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
+
+		ps = time.Now()
+		err = processor.ProcessRequestTrailers(rc, t)
+		rc.duration += time.Since(ps).Nanoseconds()
+		break
+
+	case *extprocv3.ProcessingRequest_ResponseHeaders:
+		phase = REQUEST_PHASE_RESPONSE_HEADERS
+		log.Printf("Processing Response Headers %v \n", v)
+		h := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
+
+		ps = time.Now()
+		err = processor.ProcessResponseHeaders(rc, h)
+		rc.duration += time.Since(ps).Nanoseconds()
+		break
+
+	case *extprocv3.ProcessingRequest_ResponseBody:
+		phase = REQUEST_PHASE_RESPONSE_BODY
+		log.Printf("Processing Response Body %v \n", v)
+		b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
+
+		ps = time.Now()
+		err = processor.ProcessResponseBody(rc, b)
+		rc.duration += time.Since(ps).Nanoseconds()
+		break
+
+	case *extprocv3.ProcessingRequest_ResponseTrailers:
+		phase = REQUEST_PHASE_RESPONSE_TRAILERS
+		log.Printf("Processing Response Trailers %v \n", v)
+		t := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
+
+		ps = time.Now()
+		err = processor.ProcessResponseTrailers(rc, t)
+		rc.duration += time.Since(ps).Nanoseconds()
+		break
+
+	default:
+		log.Printf("Unknown Request type %v\n", v)
+		err = errors.New("Unknown request type")
 	}
+
+	if err != nil {
+		log.Printf("process error %v", err)
+		return nil, err
+	}
+	return rc.GetResponse(phase)
+
 }

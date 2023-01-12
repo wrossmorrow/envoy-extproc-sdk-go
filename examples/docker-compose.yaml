@@ -1,32 +1,74 @@
 services:
 
+  # envoy, configured as with envoy.yaml to use extprocs
   envoy:
     image: envoyproxy/envoy:${ENVOY_VERSION:-v1.22-latest}
     ports:
       - "8080:8000"
       - "9901:9901"
     volumes:
-      - ./mocks/envoy.yaml:/etc/envoy/envoy.yaml
-    # turn on logging as needed; can be noisy otherwise
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    # turn on logging as needed; can be _very_ noisy otherwise esp. with trace
     logging:
       driver: none
 
+  # upstream "echo" server
   upstream:
     hostname: upstream
     image: echo-server:${IMAGE_TAG:-compose}
     build:
-      context: mocks/echo
+      context: _mocks/echo
       dockerfile: "Dockerfile"
     ports:
       - '8000:8000'
     environment:
       - LOG_LEVEL=info
 
-  base:
-    image: envoy-extproc-sdk-go:${IMAGE_TAG:-compose}
+  # extprocs
+
+  # noop:
+  #   image: envoy-extproc-sdk-go-all:${IMAGE_TAG:-compose}
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.examples
+  #   command: 
+  #     - go
+  #     - run
+  #     - noop/*.go
+  # trivial:
+  #   image: envoy-extproc-sdk-go-all:${IMAGE_TAG:-compose}
+  #   command: 
+  #     - go
+  #     - run
+  #     - trivial/*.go
+  # timing:
+  #   image: envoy-extproc-sdk-go-all:${IMAGE_TAG:-compose}
+  #   command: 
+  #     - go
+  #     - run
+  #     - timing/*.go
+
+  noop:
+    image: envoy-extproc-sdk-go-noop:${IMAGE_TAG:-compose}
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        EXAMPLE: noop
+  trivial:
+    image: envoy-extproc-sdk-go-trivial:${IMAGE_TAG:-compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXAMPLE: trivial
+  timer:
+    image: envoy-extproc-sdk-go-timing:${IMAGE_TAG:-compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXAMPLE: timer
 
   # trivial:
   #   hostname: 'trivial'

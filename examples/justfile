@@ -34,3 +34,6 @@ containerize EXAMPLE="noop" *FLAGS="":
         -t {{image_name}}-{{EXAMPLE}}:{{image_tag}} \
         --build-arg EXAMPLE={{EXAMPLE}} \
         {{FLAGS}}
+
+up:
+    docker-compose build && docker-compose up

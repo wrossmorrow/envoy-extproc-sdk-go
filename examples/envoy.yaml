@@ -16,14 +16,15 @@ static_resources:
                     - name: upstream
                       domains: ["*"]
                       routes:
-                        # - match:
-                        #     prefix: "/no-ext-procs"
-                        #   route:
-                        #     cluster: upstream
-                        #   typed_per_filter_config:
-                        #     envoy.filters.http.ext_proc:
-                        #       '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
-                        #       disabled: true
+                        # any route prefixed with "/no-extproc" will bypass extprocs
+                        - match:
+                            prefix: "/no-extproc"
+                          route:
+                            cluster: upstream
+                          typed_per_filter_config:
+                            envoy.filters.http.ext_proc:
+                              '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
+                              disabled: true
                         - match:
                             prefix: "/"
                           route:
@@ -34,7 +35,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
                       grpc_service: 
                         envoy_grpc:
-                          cluster_name: base
+                          cluster_name: noop
                         timeout: 30s
                       failure_mode_allow: true
                       message_timeout: 0.2s
@@ -45,38 +46,38 @@ static_resources:
                         response_body_mode: BUFFERED
                         request_trailer_mode: SKIP
                         response_trailer_mode: SKIP
-                  # - name: envoy.filters.http.ext_proc
-                  #   typed_config:
-                  #     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
-                  #     grpc_service: 
-                  #       envoy_grpc:
-                  #         cluster_name: trivial
-                  #       timeout: 30s
-                  #     failure_mode_allow: true
-                  #     message_timeout: 0.2s
-                  #     processing_mode: 
-                  #       request_header_mode: SEND
-                  #       response_header_mode: SEND
-                  #       request_body_mode: BUFFERED
-                  #       response_body_mode: BUFFERED
-                  #       request_trailer_mode: SKIP
-                  #       response_trailer_mode: SKIP
-                  # - name: envoy.filters.http.ext_proc
-                  #   typed_config:
-                  #     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
-                  #     grpc_service: 
-                  #       envoy_grpc:
-                  #         cluster_name: timer
-                  #       timeout: 30s
-                  #     failure_mode_allow: true
-                  #     message_timeout: 0.2s
-                  #     processing_mode: 
-                  #       request_header_mode: SEND
-                  #       response_header_mode: SEND
-                  #       request_body_mode: BUFFERED
-                  #       response_body_mode: BUFFERED
-                  #       request_trailer_mode: SKIP
-                  #       response_trailer_mode: SKIP
+                  - name: envoy.filters.http.ext_proc
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                      grpc_service: 
+                        envoy_grpc:
+                          cluster_name: trivial
+                        timeout: 30s
+                      failure_mode_allow: true
+                      message_timeout: 0.2s
+                      processing_mode: 
+                        request_header_mode: SEND
+                        response_header_mode: SEND
+                        request_body_mode: BUFFERED
+                        response_body_mode: BUFFERED
+                        request_trailer_mode: SKIP
+                        response_trailer_mode: SKIP
+                  - name: envoy.filters.http.ext_proc
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                      grpc_service: 
+                        envoy_grpc:
+                          cluster_name: timer
+                        timeout: 30s
+                      failure_mode_allow: true
+                      message_timeout: 0.2s
+                      processing_mode: 
+                        request_header_mode: SEND
+                        response_header_mode: SEND
+                        request_body_mode: BUFFERED
+                        response_body_mode: BUFFERED
+                        request_trailer_mode: SKIP
+                        response_trailer_mode: SKIP
                   # - name: envoy.filters.http.ext_proc
                   #   typed_config:
                   #     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
@@ -184,7 +185,7 @@ static_resources:
                   socket_address:
                     address: upstream
                     port_value: 8000
-  - name: base
+  - name: noop
     dns_lookup_family: V4_ONLY
     lb_policy: LEAST_REQUEST
     load_assignment:
@@ -194,7 +195,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: base
+                address: noop
                 port_value: 50051
             hostname: base
     type: LOGICAL_DNS
@@ -203,46 +204,44 @@ static_resources:
         '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
         explicit_http_config:
           http2_protocol_options: {}
-
-  # - name: trivial
-  #   dns_lookup_family: V4_ONLY
-  #   lb_policy: LEAST_REQUEST
-  #   load_assignment:
-  #     cluster_name: trivial
-  #     endpoints:
-  #     - lb_endpoints:
-  #       - endpoint:
-  #           address:
-  #             socket_address:
-  #               address: trivial
-  #               port_value: 50051
-  #           hostname: trivial
-  #   type: LOGICAL_DNS
-  #   typed_extension_protocol_options:
-  #     envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-  #       '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-  #       explicit_http_config:
-  #         http2_protocol_options: {}
-
-  # - name: timer
-  #   dns_lookup_family: V4_ONLY
-  #   lb_policy: LEAST_REQUEST
-  #   load_assignment:
-  #     cluster_name: timer
-  #     endpoints:
-  #     - lb_endpoints:
-  #       - endpoint:
-  #           address:
-  #             socket_address:
-  #               address: timer
-  #               port_value: 50051
-  #           hostname: timer
-  #   type: LOGICAL_DNS
-  #   typed_extension_protocol_options:
-  #     envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-  #       '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-  #       explicit_http_config:
-  #         http2_protocol_options: {}
+  - name: trivial
+    dns_lookup_family: V4_ONLY
+    lb_policy: LEAST_REQUEST
+    load_assignment:
+      cluster_name: trivial
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: trivial
+                port_value: 50051
+            hostname: trivial
+    type: LOGICAL_DNS
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+  - name: timer
+    dns_lookup_family: V4_ONLY
+    lb_policy: LEAST_REQUEST
+    load_assignment:
+      cluster_name: timer
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: timer
+                port_value: 50051
+            hostname: timer
+    type: LOGICAL_DNS
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
 
   # - name: echo
   #   dns_lookup_family: V4_ONLY
