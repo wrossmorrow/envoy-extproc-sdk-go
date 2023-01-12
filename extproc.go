@@ -78,6 +78,10 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		err error
 	)
 
+	if rc == nil {
+		log.Printf("Request context is nil at %v \n", req.Request.(type))
+	}
+
 	phase := REQUEST_PHASE_UNDETERMINED
 
 	switch v := req.Request.(type) {
