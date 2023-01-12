@@ -1,5 +1,8 @@
 
 update:
+    go get -u && just tidy
+
+tidy:
     go mod tidy
 
 format:
@@ -19,3 +22,12 @@ run EXAMPLE="noop":
 
 build *FLAGS="":
     go build {{FLAGS}}
+
+tag VERSION="":
+    git tag v{{VERSION}} \
+        && git push origin --tags \
+        && cd examples && just update
+
+release VERSION="":
+    git commit -m "release v{{VERSION}}" \
+        && git push && just tag {{VERSION}}

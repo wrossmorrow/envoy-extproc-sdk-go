@@ -6,6 +6,9 @@ generated_code := "gen/proto/go"
 version := "v0"
 
 update:
+    go get -u ./.. && just tidy
+
+tidy:
     for D in $( find . -type d ) ; do go mod tidy ; done
 
 format:
@@ -20,8 +23,14 @@ integration-test:
 coverage: 
     echo "TBD"
 
-run example="noop":
-    go run {{example}}/*.go
+run EXAMPLE="noop" *FLAGS="":
+    go run {{EXAMPLE}}/*.go {{FLAGS}}
 
-build:
-    go build
+build EXAMPLE="noop" *FLAGS="":
+    go build {{EXAMPLE}} {{FLAGS}}
+
+containerize EXAMPLE="noop" *FLAGS="": 
+    docker build . \
+        -t {{image_name}}-{{EXAMPLE}}:{{image_tag}} \
+        --build-arg EXAMPLE={{EXAMPLE}} \
+        {{FLAGS}}

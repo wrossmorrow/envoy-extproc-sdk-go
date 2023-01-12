@@ -15,12 +15,16 @@ RUN GRPC_HEALTH_PROBE_VER=v0.3.1 \
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
-RUN go mod download
+ARG EXAMPLE=noop
 
-COPY ./ ./
-RUN go build -o /extproc
- 
+COPY ${EXAMPLE}/go.mod ${EXAMPLE}/*.go  ./
+RUN sed -Ei.bak '/replace github\.com\/wrossmorrow\/envoy-extproc-sdk-go/d' go.mod \
+    && go mod tidy \
+    && go mod download \
+    && go build -o /extproc
+
 EXPOSE 50051
 
 CMD [ "/extproc" ]
+
+
