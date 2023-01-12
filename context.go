@@ -133,10 +133,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 	// handle immediate responses
 	if rc.response.immediateResponse != nil {
 		switch phase {
-		case REQUEST_PHASE_REQUEST_HEADERS:
-		case REQUEST_PHASE_REQUEST_BODY:
-		case REQUEST_PHASE_RESPONSE_HEADERS:
-		case REQUEST_PHASE_RESPONSE_BODY:
+		case REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_REQUEST_BODY, REQUEST_PHASE_RESPONSE_HEADERS, REQUEST_PHASE_RESPONSE_BODY:
 			return &extprocv3.ProcessingResponse{
 				Response: &extprocv3.ProcessingResponse_ImmediateResponse{
 					ImmediateResponse: rc.response.immediateResponse,

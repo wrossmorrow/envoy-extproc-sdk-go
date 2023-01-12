@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	pb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
@@ -8,12 +10,11 @@ import (
 type echoRequestProcessor struct{}
 
 func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
+	log.Printf("Method: %s", ctx.Method)
+
 	switch ctx.Method {
 	// cancel request when there is no body
-	case "HEAD":
-	case "OPTIONS":
-	case "GET":
-	case "DELETE":
+	case "HEAD", "OPTIONS", "GET", "DELETE":
 		return ctx.CancelRequest(200, make(map[string]string), "")
 	default: break
 	}

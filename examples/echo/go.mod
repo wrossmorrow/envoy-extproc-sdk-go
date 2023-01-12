@@ -1,10 +1,10 @@
-module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/noop
+module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/echo
 
 go 1.19
 
 require (
 	github.com/envoyproxy/go-control-plane v0.10.3
-	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.12
+	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.13
 )
 
 require (
