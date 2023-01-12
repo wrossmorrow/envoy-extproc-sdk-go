@@ -152,9 +152,9 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 	// handle "common" responses
 
 	// presume no-op if common response wrapper is not defined
-	if rc.response.headerMutation == nil {
-		rc.response.continueRequest = &extprocv3.HeaderMutation{}
-	}
+	// if rc.response.headerMutation == nil {
+	// 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
+	// }
 	if rc.response.continueRequest == nil {
 		rc.response.continueRequest = &extprocv3.CommonResponse{}
 	}
