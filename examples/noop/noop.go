@@ -8,25 +8,25 @@ import (
 type noopRequestProcessor struct{}
 
 func (s noopRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s noopRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s noopRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s noopRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s noopRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s noopRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
-	return nil
+	return ctx.ContinueRequest()
 }
