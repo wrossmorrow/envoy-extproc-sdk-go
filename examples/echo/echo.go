@@ -4,7 +4,6 @@ import (
 	"log"
 	"strings"
 
-	pb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
@@ -18,34 +17,35 @@ func joinHeaders(mvhs map[string][]string) map[string]string {
 	return hs
 }
 
-func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
+func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	log.Printf("Method: %s", ctx.Method)
 
 	switch ctx.Method {
 	// cancel request when there is no body
 	case "HEAD", "OPTIONS", "GET", "DELETE":
 		return ctx.CancelRequest(200, joinHeaders(ctx.Headers), "")
-	default: break
+	default:
+		break
 	}
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
-	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body.Body))
+func (s echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
+	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body))
 }
 
-func (s echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
+func (s echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
+func (s echoRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
+func (s echoRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
+func (s echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }

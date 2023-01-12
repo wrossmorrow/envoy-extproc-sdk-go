@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -13,12 +14,12 @@ import (
 )
 
 type RequestProcessor interface {
-	ProcessRequestHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) error
-	ProcessRequestBody(ctx *RequestContext, body *extprocv3.HttpBody) error
-	ProcessRequestTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) error
-	ProcessResponseHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) error
-	ProcessResponseBody(ctx *RequestContext, body *extprocv3.HttpBody) error
-	ProcessResponseTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) error
+	ProcessRequestHeaders(ctx *RequestContext, headers map[string][]string) error
+	ProcessRequestBody(ctx *RequestContext, body []byte) error
+	ProcessRequestTrailers(ctx *RequestContext, trailers map[string][]string) error
+	ProcessResponseHeaders(ctx *RequestContext, headers map[string][]string) error
+	ProcessResponseBody(ctx *RequestContext, body []byte) error
+	ProcessResponseTrailers(ctx *RequestContext, trailers map[string][]string) error
 }
 
 type GenericExtProcServer struct {
@@ -52,11 +53,12 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			return status.Errorf(codes.Unknown, "cannot receive stream request: %v", err)
 		}
 
-		// clear response in the context if defined, this is not 
+		// clear response in the context if defined, this is not
 		// carried across request phases because each one has an
-		// idiosyncratic response
+		// idiosyncratic response. rc gets "initialized" during
+		// RequestHeaders phase processing. 
 		if rc != nil {
-			rc.ResetResponse()
+			rc.ResetPhase()
 		}
 		resp, err := processPhase(req, *(s.processor), rc)
 
@@ -97,60 +99,79 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		// initialize request context (requires _not_ skipping request headers)
 		err = initReqCtx(rc, h.Headers)
+		rc.EndOfStream = h.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessRequestHeaders(rc, h)
-		rc.Duration += time.Since(ps).Nanoseconds()
+		err = processor.ProcessRequestHeaders(rc, rc.Headers)
+		rc.Duration += time.Since(ps)
 		break
 
 	case *extprocv3.ProcessingRequest_RequestBody:
 		phase = REQUEST_PHASE_REQUEST_BODY
 		log.Printf("Processing Request Body %v \n", v)
 		b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
+		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessRequestBody(rc, b)
-		rc.Duration += time.Since(ps).Nanoseconds()
+		err = processor.ProcessRequestBody(rc, b.Body)
+		rc.Duration += time.Since(ps)
 		break
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
 		phase = REQUEST_PHASE_REQUEST_TRAILERS
 		log.Printf("Processing Request Trailers %v \n", v)
-		t := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
+		ts := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
+
+		trailers := make(map[string][]string)
+		for _, h := range ts.Trailers.Headers {
+			trailers[h.Key] = strings.Split(h.Value, ",")
+		}
 
 		ps = time.Now()
-		err = processor.ProcessRequestTrailers(rc, t)
-		rc.Duration += time.Since(ps).Nanoseconds()
+		err = processor.ProcessRequestTrailers(rc, trailers)
+		rc.Duration += time.Since(ps)
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		phase = REQUEST_PHASE_RESPONSE_HEADERS
 		log.Printf("Processing Response Headers %v \n", v)
-		h := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
+		hs := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
+		rc.EndOfStream = hs.EndOfStream
+
+		headers := make(map[string][]string)
+		for _, h := range hs.Headers.Headers {
+			headers[h.Key] = strings.Split(h.Value, ",")
+		}
 
 		ps = time.Now()
-		err = processor.ProcessResponseHeaders(rc, h)
-		rc.Duration += time.Since(ps).Nanoseconds()
+		err = processor.ProcessResponseHeaders(rc, headers)
+		rc.Duration += time.Since(ps)
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
 		phase = REQUEST_PHASE_RESPONSE_BODY
 		log.Printf("Processing Response Body %v \n", v)
 		b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
+		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessResponseBody(rc, b)
-		rc.Duration += time.Since(ps).Nanoseconds()
+		err = processor.ProcessResponseBody(rc, b.Body)
+		rc.Duration += time.Since(ps)
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
 		phase = REQUEST_PHASE_RESPONSE_TRAILERS
 		log.Printf("Processing Response Trailers %v \n", v)
-		t := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
+		ts := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
+
+		trailers := make(map[string][]string)
+		for _, h := range ts.Trailers.Headers {
+			trailers[h.Key] = strings.Split(h.Value, ",")
+		}
 
 		ps = time.Now()
-		err = processor.ProcessResponseTrailers(rc, t)
-		rc.Duration += time.Since(ps).Nanoseconds()
+		err = processor.ProcessResponseTrailers(rc, trailers)
+		rc.Duration += time.Since(ps)
 		break
 
 	default:

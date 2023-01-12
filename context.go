@@ -1,8 +1,8 @@
 package extproc
 
 import (
-	"log"
 	"errors"
+	"log"
 	"strings"
 	// "strconv"
 	"time"
@@ -30,21 +30,22 @@ type PhaseResponse struct {
 }
 
 type RequestContext struct {
-	Scheme    string
-	Authority string
-	Method    string
-	Path      string
-	RequestId string
-	Headers   map[string][]string
-	Started   int64
-	Duration  int64
-	data      map[string]interface{}
-	response  PhaseResponse
+	Scheme      string
+	Authority   string
+	Method      string
+	Path        string
+	RequestId   string
+	Headers     map[string][]string
+	Started     time.Time
+	Duration    time.Duration
+	EndOfStream bool
+	data        map[string]interface{}
+	response    PhaseResponse
 }
 
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 
-	rc.Started = time.Now().UnixNano()
+	rc.Started = time.Now()
 	rc.Duration = 0
 	rc.Headers = make(map[string][]string)
 
@@ -52,7 +53,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	rc.data = make(map[string]interface{})
 
 	// for stream phase responses (convenience)
-	rc.ResetResponse()
+	rc.ResetPhase()
 
 	for _, h := range headers.Headers {
 		switch h.Key {
@@ -93,7 +94,8 @@ func (rc *RequestContext) SetValue(name string, val interface{}) error {
 	return nil
 }
 
-func (rc *RequestContext) ResetResponse() error {
+func (rc *RequestContext) ResetPhase() error {
+	rc.EndOfStream = false
 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
 	rc.response.bodyMutation = &extprocv3.BodyMutation{}
 	rc.response.continueRequest = nil
