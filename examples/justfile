@@ -1,0 +1,27 @@
+
+image_name := "envoy-extproc-sdk-go"
+image_tag := `git rev-parse HEAD`
+generated_code := "gen/proto/go"
+
+version := "v0"
+
+update:
+    for D in $( find . -type d ) ; do go mod tidy ; done
+
+format:
+    for D in $( find . -type d ) ; do go fmt $D/*.go ; done
+
+unit-test: 
+    echo "TBD"
+
+integration-test: 
+    echo "TBD"
+
+coverage: 
+    echo "TBD"
+
+run example="noop":
+    go run {{example}}/*.go
+
+build:
+    go build

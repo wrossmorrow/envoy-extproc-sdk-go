@@ -6,7 +6,7 @@ services:
       - "8080:8000"
       - "9901:9901"
     volumes:
-      - ./envoy.yaml:/etc/envoy/envoy.yaml
+      - ./mocks/envoy.yaml:/etc/envoy/envoy.yaml
     # turn on logging as needed; can be noisy otherwise
     logging:
       driver: none

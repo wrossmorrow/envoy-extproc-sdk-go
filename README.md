@@ -61,6 +61,7 @@ type requestContext struct {
 	// AddHeaders(hm *pb.HeaderMutation, headers map[string]string, action string) error
 	// RemoveHeader(hm *pb.HeaderMutation, name string) error
 	// RemoveHeaders(hm *pb.HeaderMutation, headers ...string) error
+}
 ```
 As detailed in the comments, this context is initialized with request data when request headers are received (implying that the `envoy` configuration should always have `processing_mode.request_header_mode: SEND`). This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot (`data`) for arbitrary values. The methods annotated in comments provide some convenience routines for operating on request/response headers, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. For example, the following adds a request header seen by an upstream: 
 ```go

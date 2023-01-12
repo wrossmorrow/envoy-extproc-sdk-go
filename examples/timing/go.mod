@@ -1,10 +1,10 @@
-module github.com/wrossmorrow/envoy-extproc-sdk-go/v0
+module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/trivial
 
 go 1.19
 
 require (
 	github.com/envoyproxy/go-control-plane v0.10.3
-	google.golang.org/grpc v1.50.1
+	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.1
 )
 
 require (
@@ -15,5 +15,8 @@ require (
 	golang.org/x/sys v0.0.0-20210816183151-1e6c022a8912 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/genproto v0.0.0-20220329172620-7be39ac1afc7 // indirect
+	google.golang.org/grpc v1.50.1 // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 )
+
+replace github.com/wrossmorrow/envoy-extproc-sdk-go => ../../
