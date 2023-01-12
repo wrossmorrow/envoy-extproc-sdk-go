@@ -26,24 +26,25 @@ func (s timingRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, t
 }
 
 func (s timingRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
+
+	finished := time.Now()
+	duration := time.Since(finished)
+
+	ctx.AddHeader("x-extproc-finished-ns", strconv.FormatInt(finished.UnixNano(), 10))
+	ctx.AddHeader("x-upstream-duration-ns", strconv.FormatInt(duration.Nanoseconds(), 10))
+
 	return ctx.ContinueRequest()
 }
 
 func (s timingRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
 
-	var val string
-
 	finished := time.Now()
 	duration := time.Since(finished)
 
-	val = strconv.FormatInt(finished.UnixNano(), 10)
-	ctx.OverwriteHeader("x-extproc-finished-ns", val)
-
-	val = strconv.FormatInt(duration.Nanoseconds(), 10)
-	ctx.OverwriteHeader("x-upstream-duration-ns", val)
+	ctx.OverwriteHeader("x-extproc-finished-ns", strconv.FormatInt(finished.UnixNano(), 10))
+	ctx.OverwriteHeader("x-upstream-duration-ns", strconv.FormatInt(duration.Nanoseconds(), 10))
 
 	return ctx.ContinueRequest()
-
 }
 
 func (s timingRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {

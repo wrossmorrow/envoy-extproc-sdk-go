@@ -60,7 +60,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		}
 		resp, err := processPhase(req, *(s.processor), rc)
 
-		if resp == nil {
+		if err != nil {
+			log.Printf("processing error %v", err)
+		} else if resp == nil {
 			log.Printf("processing did not define response")
 			// TODO: what here?
 		} else {
@@ -156,10 +158,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		err = errors.New("Unknown request type")
 	}
 
-	log.Printf("Request Context %v \n", rc)
-
 	if err != nil {
-		log.Printf("process error %v", err)
 		return nil, err
 	}
 	return rc.GetResponse(phase)
