@@ -28,7 +28,7 @@ type GenericExtProcServer struct {
 
 func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
 
-	var rc *RequestContext
+	rc := &RequestContext{}
 
 	if s.processor == nil {
 		log.Fatalf("cannot process request stream without `processor` interface")
@@ -52,7 +52,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			return status.Errorf(codes.Unknown, "cannot receive stream request: %v", err)
 		}
 
-		// clear response in the context if defined
+		// clear response in the context if defined, this is not 
+		// carried across request phases because each one has an
+		// idiosyncratic response
 		if rc != nil {
 			rc.ResetResponse()
 		}
@@ -95,7 +97,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		if rc != nil {
 			log.Printf("Request context is not nil in request headers phase")
 		}
-		rc, err = NewReqCtx(h.Headers)
+		err = initReqCtx(rc, h.Headers)
 
 		ps = time.Now()
 		err = processor.ProcessRequestHeaders(rc, h)
@@ -127,7 +129,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		log.Printf("Processing Response Headers %v \n", v)
 		log.Printf("Request Context %v \n", rc)
 		h := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
-		
+
 		ps = time.Now()
 		err = processor.ProcessResponseHeaders(rc, h)
 		rc.duration += time.Since(ps).Nanoseconds()

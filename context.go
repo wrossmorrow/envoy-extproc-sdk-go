@@ -41,9 +41,7 @@ type RequestContext struct {
 	response  PhaseResponse
 }
 
-func NewReqCtx(headers *corev3.HeaderMap) (*RequestContext, error) {
-
-	rc := RequestContext{}
+func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 
 	rc.started = time.Now().UnixNano()
 	rc.duration = 0
@@ -78,7 +76,7 @@ func NewReqCtx(headers *corev3.HeaderMap) (*RequestContext, error) {
 		}
 	}
 
-	return &rc, nil
+	return nil
 }
 
 func (rc *RequestContext) GetValue(name string) (interface{}, error) {

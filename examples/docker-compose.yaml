@@ -52,21 +52,21 @@ services:
     image: envoy-extproc-sdk-go-noop:${IMAGE_TAG:-compose}
     build:
       context: .
-      dockerfile: Dockerfile${DOCKERFILE_EXT:-""}
+      dockerfile: Dockerfile
       args:
         EXAMPLE: noop
   trivial:
     image: envoy-extproc-sdk-go-trivial:${IMAGE_TAG:-compose}
     build:
       context: .
-      dockerfile: Dockerfile${DOCKERFILE_EXT:-""}
+      dockerfile: Dockerfile
       args:
         EXAMPLE: trivial
   timer:
     image: envoy-extproc-sdk-go-timing:${IMAGE_TAG:-compose}
     build:
       context: .
-      dockerfile: Dockerfile${DOCKERFILE_EXT:-""}
+      dockerfile: Dockerfile
       args:
         EXAMPLE: timer
 
