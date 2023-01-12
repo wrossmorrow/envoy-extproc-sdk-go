@@ -103,12 +103,12 @@ func (rc *RequestContext) ResetResponse() error {
 func (rc *RequestContext) ContinueRequest() error {
 	if rc.response.immediateResponse != nil {
 		rc.response.immediateResponse = nil
-		rc.response.continueRequest = &extprocv3.CommonResponse{
-			// status?
-			HeaderMutation: rc.response.headerMutation,
-			BodyMutation:   rc.response.bodyMutation,
-			// trailers?
-		}
+	}
+	rc.response.continueRequest = &extprocv3.CommonResponse{
+		// status?
+		HeaderMutation: rc.response.headerMutation,
+		BodyMutation:   rc.response.bodyMutation,
+		// trailers?
 	}
 	return nil
 }

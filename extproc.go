@@ -127,7 +127,6 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		phase = REQUEST_PHASE_RESPONSE_HEADERS
 		log.Printf("Processing Response Headers %v \n", v)
-		log.Printf("Request Context %v \n", rc)
 		h := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
 
 		ps = time.Now()
@@ -159,6 +158,8 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		log.Printf("Unknown Request type %v\n", v)
 		err = errors.New("Unknown request type")
 	}
+	
+	log.Printf("Request Context %v \n", rc)
 
 	if err != nil {
 		log.Printf("process error %v", err)
