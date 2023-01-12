@@ -18,7 +18,7 @@ services:
     image: echo-server:${IMAGE_TAG:-compose}
     build:
       context: _mocks/echo
-      dockerfile: "Dockerfile"
+      dockerfile: Dockerfile
     ports:
       - '8000:8000'
     environment:
@@ -52,21 +52,21 @@ services:
     image: envoy-extproc-sdk-go-noop:${IMAGE_TAG:-compose}
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile${DOCKERFILE_EXT:-""}
       args:
         EXAMPLE: noop
   trivial:
     image: envoy-extproc-sdk-go-trivial:${IMAGE_TAG:-compose}
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile${DOCKERFILE_EXT:-""}
       args:
         EXAMPLE: trivial
   timer:
     image: envoy-extproc-sdk-go-timing:${IMAGE_TAG:-compose}
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile${DOCKERFILE_EXT:-""}
       args:
         EXAMPLE: timer
 

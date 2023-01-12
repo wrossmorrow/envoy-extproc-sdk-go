@@ -37,3 +37,4 @@ containerize EXAMPLE="noop" *FLAGS="":
 
 up:
     docker-compose build && docker-compose up
+
