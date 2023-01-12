@@ -1,4 +1,4 @@
-package main
+package extproc
 
 import (
 	"errors"
@@ -6,11 +6,11 @@ import (
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	pb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 )
 
-type requestContext struct {
+type RequestContext struct {
 	scheme    string
 	authority string
 	method    string
@@ -21,9 +21,9 @@ type requestContext struct {
 	data      map[string]interface{}
 }
 
-func NewReqCtx(headers *corev3.HeaderMap) (*requestContext, error) {
+func NewReqCtx(headers *corev3.HeaderMap) (*RequestContext, error) {
 
-	rc := requestContext{}
+	rc := RequestContext{}
 
 	rc.started = time.Now().UnixNano()
 	rc.duration = 0
@@ -54,7 +54,7 @@ func NewReqCtx(headers *corev3.HeaderMap) (*requestContext, error) {
 	return &rc, nil
 }
 
-func (rc *requestContext) GetValue(name string) (interface{}, error) {
+func (rc *RequestContext) GetValue(name string) (interface{}, error) {
 	val, exists := rc.data[name]
 	if exists {
 		return val, nil
@@ -62,12 +62,12 @@ func (rc *requestContext) GetValue(name string) (interface{}, error) {
 	return nil, errors.New(name + " does not exist")
 }
 
-func (rc *requestContext) SetValue(name string, val interface{}) error {
+func (rc *RequestContext) SetValue(name string, val interface{}) error {
 	rc.data[name] = val
 	return nil
 }
 
-func (rc *requestContext) StartedHeader() (*corev3.HeaderValueOption, error) {
+func (rc *RequestContext) StartedHeader() (*corev3.HeaderValueOption, error) {
 	return &corev3.HeaderValueOption{
 		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 		Header: &corev3.HeaderValue{
@@ -77,7 +77,7 @@ func (rc *requestContext) StartedHeader() (*corev3.HeaderValueOption, error) {
 	}, nil
 }
 
-func (rc *requestContext) DurationHeader() (*corev3.HeaderValueOption, error) {
+func (rc *RequestContext) DurationHeader() (*corev3.HeaderValueOption, error) {
 	return &corev3.HeaderValueOption{
 		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 		Header: &corev3.HeaderValue{
@@ -87,21 +87,21 @@ func (rc *requestContext) DurationHeader() (*corev3.HeaderValueOption, error) {
 	}, nil
 }
 
-func (rc *requestContext) FormCommonResponse() (*pb.CommonResponse, error) {
-	return &pb.CommonResponse{HeaderMutation: &pb.HeaderMutation{}}, nil
+func (rc *RequestContext) FormCommonResponse() (*extprocv3.CommonResponse, error) {
+	return &extprocv3.CommonResponse{HeaderMutation: &extprocv3.HeaderMutation{}}, nil
 }
 
-func (rc *requestContext) FormImmediateResponse(status int32, body string) (*pb.ImmediateResponse, error) {
-	return &pb.ImmediateResponse{
+func (rc *RequestContext) FormImmediateResponse(status int32, body string) (*extprocv3.ImmediateResponse, error) {
+	return &extprocv3.ImmediateResponse{
 		Status: &typev3.HttpStatus{
 			Code: typev3.StatusCode(status),
 		},
-		Headers: &pb.HeaderMutation{},
+		Headers: &extprocv3.HeaderMutation{},
 		Body:    body,
 	}, nil
 }
 
-func (rc *requestContext) AddHeader(hm *pb.HeaderMutation, name string, value string, action string) error {
+func (rc *RequestContext) AddHeader(hm *extprocv3.HeaderMutation, name string, value string, action string) error {
 	h := &corev3.HeaderValueOption{
 		Header: &corev3.HeaderValue{Key: name, Value: value},
 		AppendAction: corev3.HeaderValueOption_HeaderAppendAction(
@@ -112,7 +112,7 @@ func (rc *requestContext) AddHeader(hm *pb.HeaderMutation, name string, value st
 	return nil
 }
 
-func (rc *requestContext) AddHeaders(hm *pb.HeaderMutation, headers map[string]string, action string) error {
+func (rc *RequestContext) AddHeaders(hm *extprocv3.HeaderMutation, headers map[string]string, action string) error {
 	a := corev3.HeaderValueOption_HeaderAppendAction(
 		corev3.HeaderValueOption_HeaderAppendAction_value[action],
 	)
@@ -126,18 +126,34 @@ func (rc *requestContext) AddHeaders(hm *pb.HeaderMutation, headers map[string]s
 	return nil
 }
 
-func (rc *requestContext) RemoveHeader(hm *pb.HeaderMutation, name string) error {
+func (rc *RequestContext) RemoveHeader(hm *extprocv3.HeaderMutation, name string) error {
 	if !StrInSlice(hm.RemoveHeaders, name) {
 		hm.RemoveHeaders = append(hm.RemoveHeaders, name)
 	}
 	return nil
 }
 
-func (rc *requestContext) RemoveHeaders(hm *pb.HeaderMutation, headers ...string) error {
+func (rc *RequestContext) RemoveHeaders(hm *extprocv3.HeaderMutation, headers ...string) error {
 	for _, h := range headers {
 		if !StrInSlice(hm.RemoveHeaders, h) {
 			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
 		}
 	}
+	return nil
+}
+
+func (rc *RequestContext) ContinueRequest() error {
+	return nil
+}
+
+func (rc *RequestContext) CancelRequest(status int32, body string) error {
+	return nil
+}
+
+func (rc *RequestContext) ResetResponse(phase int) error {
+	return nil
+}
+
+func (rc *RequestContext) GetResponse() error {
 	return nil
 }

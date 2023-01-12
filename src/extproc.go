@@ -1,24 +1,42 @@
-package main
+package extproc
 
 import (
 	"io"
 	"log"
-	"strconv"
-
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
-	pb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
-type extProcServer struct{}
+type RequestProcessor interface {
+	ProcessRequestHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
+	ProcessRequestBody(ctx *RequestContext, body *extprocv3.HttpBody) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
+	ProcessRequestTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) (*extprocv3.HeaderMutation, error)
+	ProcessResponseHeaders(ctx *RequestContext, headers *extprocv3.HttpHeaders) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
+	ProcessResponseBody(ctx *RequestContext, body *extprocv3.HttpBody) (*extprocv3.CommonResponse, *extprocv3.ImmediateResponse, error)
+	ProcessResponseTrailers(ctx *RequestContext, trailers *extprocv3.HttpTrailers) (*extprocv3.HeaderMutation, error)
+}
 
-func (s *extProcServer) Process(srv pb.ExternalProcessor_ProcessServer) error {
+type genericExtProcServer struct {
+	name      string
+	processor *RequestProcessor
+}
 
-	log.Println("Got stream:  -->  ")
+func (s *genericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
+
+	var (
+		rc *RequestContext
+		ps time.Time
+	)
+
+	if s.processor == nil {
+		log.Fatalf("cannot process request stream without `processor` interface")
+	}
+
+	log.Println("Starting request stream")
 	ctx := srv.Context()
 	for {
 
@@ -36,161 +54,187 @@ func (s *extProcServer) Process(srv pb.ExternalProcessor_ProcessServer) error {
 			return status.Errorf(codes.Unknown, "cannot receive stream request: %v", err)
 		}
 
-		resp := &pb.ProcessingResponse{}
+		resp := &extprocv3.ProcessingResponse{}
 		switch v := req.Request.(type) {
 
-		case *pb.ProcessingRequest_RequestHeaders:
-			log.Printf("pb.ProcessingRequest_RequestHeaders %v \n", v)
-			r := req.Request
-			h := r.(*pb.ProcessingRequest_RequestHeaders)
-			//log.Printf("Got RequestHeaders.Attributes %v", h.RequestHeaders.Attributes)
-			//log.Printf("Got RequestHeaders.Headers %v", h.RequestHeaders.Headers)
+		case *extprocv3.ProcessingRequest_RequestHeaders:
+			log.Printf("extprocv3.ProcessingRequest_RequestHeaders %v \n", v)
+			h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
 
-			isPOST := false
-			for _, n := range h.RequestHeaders.Headers.Headers {
-				if n.Key == ":method" && n.Value == "POST" {
-					isPOST = true
-					break
-				}
-			}
+			// define the request context (requires not skipping request headers)
+			rc, err = NewReqCtx(h.Headers)
 
-			for _, n := range h.RequestHeaders.Headers.Headers {
-				log.Printf("Header %s %s", n.Key, n.Value)
-				if n.Key == "user" && isPOST {
-					log.Printf("Processing User Header")
-					rhq := &pb.HeadersResponse{
-						Response: &pb.CommonResponse{
-							HeaderMutation: &pb.HeaderMutation{
-								RemoveHeaders: []string{"content-length", "user"},
-							},
-						},
-					}
+			ps = time.Now()
+			cr, ir, err := (*s.processor).ProcessRequestHeaders(rc, h)
+			rc.duration += time.Since(ps).Nanoseconds()
 
-					resp = &pb.ProcessingResponse{
-						Response: &pb.ProcessingResponse_RequestHeaders{
-							RequestHeaders: rhq,
-						},
-						ModeOverride: &v3.ProcessingMode{
-							RequestBodyMode:    v3.ProcessingMode_BUFFERED,
-							ResponseHeaderMode: v3.ProcessingMode_SKIP,
-							ResponseBodyMode:   v3.ProcessingMode_NONE,
-						},
-					}
-				}
-			}
-			break
-
-		case *pb.ProcessingRequest_RequestBody:
-
-			r := req.Request
-			b := r.(*pb.ProcessingRequest_RequestBody)
-			log.Printf("   RequestBody: %s", string(b.RequestBody.Body))
-			log.Printf("   EndOfStream: %T", b.RequestBody.EndOfStream)
-			if b.RequestBody.EndOfStream {
-
-				bytesToSend := append(b.RequestBody.Body, []byte(` baaar `)...)
-				resp = &pb.ProcessingResponse{
-					Response: &pb.ProcessingResponse_RequestBody{
-						RequestBody: &pb.BodyResponse{
-							Response: &pb.CommonResponse{
-								HeaderMutation: &pb.HeaderMutation{
-									SetHeaders: []*core.HeaderValueOption{
-										{
-											Header: &core.HeaderValue{
-												Key:   "Content-Length",
-												Value: strconv.Itoa(len(bytesToSend)),
-											},
-										},
-									},
-								},
-								BodyMutation: &pb.BodyMutation{
-									Mutation: &pb.BodyMutation_Body{
-										Body: bytesToSend,
-									},
-								},
-							},
-						},
+			if err != nil {
+				log.Printf("process error %v", err)
+			} else if ir != nil {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
+						ImmediateResponse: ir,
 					},
-					ModeOverride: &v3.ProcessingMode{
-						ResponseHeaderMode: v3.ProcessingMode_SEND,
-						ResponseBodyMode:   v3.ProcessingMode_NONE,
+				}
+			} else {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_RequestHeaders{
+						RequestHeaders: &extprocv3.HeadersResponse{
+							Response: cr,
+						},
 					},
 				}
 			}
 			break
 
-		case *pb.ProcessingRequest_ResponseHeaders:
-			log.Printf("pb.ProcessingRequest_ResponseHeaders %v \n", v)
-			r := req.Request
-			h := r.(*pb.ProcessingRequest_ResponseHeaders)
+		case *extprocv3.ProcessingRequest_RequestBody:
+			log.Printf("Processing Request Body %v \n", v)
+			b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
 
-			responseSize := 0
-			for _, n := range h.ResponseHeaders.Headers.Headers {
-				if n.Key == "content-length" {
-					responseSize, _ = strconv.Atoi(n.Value)
-					break
+			ps = time.Now()
+			cr, ir, err := (*s.processor).ProcessRequestBody(rc, b)
+			rc.duration += time.Since(ps).Nanoseconds()
+
+			if err != nil {
+				log.Printf("process error %v", err)
+			} else if ir != nil {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
+						ImmediateResponse: ir,
+					},
 				}
-			}
-
-			log.Println("  Removing access-control-allow-* headers")
-			rhq := &pb.HeadersResponse{
-				Response: &pb.CommonResponse{
-					HeaderMutation: &pb.HeaderMutation{
-						RemoveHeaders: []string{"access-control-allow-origin", "access-control-allow-credentials"},
-						SetHeaders: []*core.HeaderValueOption{
-							{
-								Header: &core.HeaderValue{
-									Key:   "content-type",
-									Value: "text/plain",
-								},
-							},
-							{
-								Header: &core.HeaderValue{
-									Key:   "content-length",
-									Value: strconv.Itoa(responseSize + len([]byte(` qux`))),
-								},
-							},
+			} else {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_RequestBody{
+						RequestBody: &extprocv3.BodyResponse{
+							Response: cr,
 						},
 					},
-				},
-			}
-			resp = &pb.ProcessingResponse{
-				Response: &pb.ProcessingResponse_ResponseHeaders{
-					ResponseHeaders: rhq,
-				},
-				ModeOverride: &v3.ProcessingMode{
-					ResponseBodyMode: v3.ProcessingMode_BUFFERED,
-				},
+				}
 			}
 			break
 
-		case *pb.ProcessingRequest_ResponseBody:
-			log.Printf("pb.ProcessingRequest_ResponseBody %v \n", v)
-			r := req.Request
-			b := r.(*pb.ProcessingRequest_ResponseBody)
-			if b.ResponseBody.EndOfStream {
-				bytesToSend := append(b.ResponseBody.Body, []byte(` qux`)...)
-				resp = &pb.ProcessingResponse{
-					Response: &pb.ProcessingResponse_ResponseBody{
-						ResponseBody: &pb.BodyResponse{
-							Response: &pb.CommonResponse{
-								BodyMutation: &pb.BodyMutation{
-									Mutation: &pb.BodyMutation_Body{
-										Body: bytesToSend,
-									},
-								},
-							},
+		case *extprocv3.ProcessingRequest_RequestTrailers:
+			log.Printf("Processing Request Trailers %v \n", v)
+			t := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
+
+			ps = time.Now()
+			hm, err := (*s.processor).ProcessRequestTrailers(rc, t)
+			rc.duration += time.Since(ps).Nanoseconds()
+
+			if err != nil {
+				log.Printf("process error %v", err)
+			} else {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_RequestTrailers{
+						RequestTrailers: &extprocv3.TrailersResponse{
+							HeaderMutation: hm,
 						},
 					},
 				}
 			}
+			break
 
+		case *extprocv3.ProcessingRequest_ResponseHeaders:
+			log.Printf("Processing Response Headers %v \n", v)
+			h := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
+
+			ps = time.Now()
+			cr, ir, err := (*s.processor).ProcessResponseHeaders(rc, h)
+			rc.duration += time.Since(ps).Nanoseconds()
+
+			// NOTE: do we need to append header with extproc duration?
+			// HeaderValueOption{
+			//		append_action: OVERWRITE_IF_EXISTS_OR_ADD,
+			//		Header{key: "x-extproc-duration", value: string(rc.duration)}
+			// }
+			//
+			// or
+			//
+			// dhvo, _ := rc.durationHeader()
+
+			if err != nil {
+				log.Printf("process error %v", err)
+			} else if ir != nil {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
+						ImmediateResponse: ir,
+					},
+				}
+			} else {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_ResponseHeaders{
+						ResponseHeaders: &extprocv3.HeadersResponse{
+							Response: cr,
+						},
+					},
+				}
+			}
+			break
+
+		case *extprocv3.ProcessingRequest_ResponseBody:
+			log.Printf("Processing Response Body %v \n", v)
+			b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
+
+			ps = time.Now()
+			cr, ir, err := (*s.processor).ProcessResponseBody(rc, b)
+			rc.duration += time.Since(ps).Nanoseconds()
+
+			// NOTE: do we need to append header with extproc duration?
+			// HeaderValueOption{
+			//		append_action: OVERWRITE_IF_EXISTS_OR_ADD,
+			//		Header{key: "x-extproc-duration", value: string(rc.duration)}
+			// }
+			//
+			// or
+			//
+			// dhvo, _ := rc.durationHeader()
+
+			if err != nil {
+				log.Printf("process error %v", err)
+			} else if ir != nil {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_ImmediateResponse{
+						ImmediateResponse: ir,
+					},
+				}
+			} else {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_ResponseBody{
+						ResponseBody: &extprocv3.BodyResponse{
+							Response: cr,
+						},
+					},
+				}
+			}
+			break
+
+		case *extprocv3.ProcessingRequest_ResponseTrailers:
+			log.Printf("Processing Response Trailers %v \n", v)
+			t := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
+
+			ps = time.Now()
+			hm, err := (*s.processor).ProcessResponseTrailers(rc, t)
+			rc.duration += time.Since(ps).Nanoseconds()
+
+			if err != nil {
+				log.Printf("process error %v", err)
+			} else {
+				resp = &extprocv3.ProcessingResponse{
+					Response: &extprocv3.ProcessingResponse_RequestTrailers{
+						RequestTrailers: &extprocv3.TrailersResponse{
+							HeaderMutation: hm,
+						},
+					},
+				}
+			}
 			break
 
 		default:
 			log.Printf("Unknown Request type %v\n", v)
 		}
 
+		log.Printf("extprocv3.ProcessingResponse %v \n", resp)
 		if err := srv.Send(resp); err != nil {
 			log.Printf("send error %v", err)
 		}
