@@ -13,15 +13,15 @@ func (s trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, h
 }
 
 func (s trivialRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s trivialRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s trivialRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
@@ -30,5 +30,5 @@ func (s trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 }
 
 func (s trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
-	return nil
+	return ctx.ContinueRequest()
 }

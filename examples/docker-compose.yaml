@@ -69,6 +69,13 @@ services:
       dockerfile: Dockerfile
       args:
         EXAMPLE: timer
+  echo:
+    image: envoy-extproc-sdk-go-echo:${IMAGE_TAG:-compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXAMPLE: echo
 
   # trivial:
   #   hostname: 'trivial'

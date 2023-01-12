@@ -29,23 +29,23 @@ type PhaseResponse struct {
 }
 
 type RequestContext struct {
-	scheme    string
-	authority string
-	method    string
-	path      string
-	requestId string
-	headers   map[string][]string
-	started   int64
-	duration  int64
+	Scheme    string
+	Authority string
+	Method    string
+	Path      string
+	RequestId string
+	Headers   map[string][]string
+	Started   int64
+	Duration  int64
 	data      map[string]interface{}
 	response  PhaseResponse
 }
 
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 
-	rc.started = time.Now().UnixNano()
-	rc.duration = 0
-	rc.headers = make(map[string][]string)
+	rc.Started = time.Now().UnixNano()
+	rc.Duration = 0
+	rc.Headers = make(map[string][]string)
 
 	// for custom data between phases
 	rc.data = make(map[string]interface{})
@@ -56,22 +56,22 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	for _, h := range headers.Headers {
 		switch h.Key {
 		case ":scheme":
-			rc.scheme = h.Value
+			rc.Scheme = h.Value
 			break
 		case ":authority":
-			rc.authority = h.Value
+			rc.Authority = h.Value
 			break
 		case ":method":
-			rc.method = h.Value
+			rc.Method = h.Value
 			break
 		case ":path":
-			rc.path = h.Value
+			rc.Path = h.Value
 			break
 		case "x-request-id":
-			rc.requestId = h.Value
+			rc.RequestId = h.Value
 			break
 		default:
-			rc.headers[h.Key] = strings.Split(h.Value, ",")
+			rc.Headers[h.Key] = strings.Split(h.Value, ",")
 			break
 		}
 	}

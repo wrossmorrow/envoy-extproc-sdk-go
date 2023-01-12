@@ -18,15 +18,15 @@ func (s timingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, he
 }
 
 func (s timingRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s timingRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s timingRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers *pb.HttpHeaders) error {
-	return nil
+	return ctx.ContinueRequest()
 }
 
 func (s timingRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body *pb.HttpBody) error {
@@ -47,5 +47,5 @@ func (s timingRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 }
 
 func (s timingRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers *pb.HttpTrailers) error {
-	return nil
+	return ctx.ContinueRequest()
 }

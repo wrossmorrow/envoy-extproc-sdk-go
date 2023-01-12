@@ -93,15 +93,12 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		log.Printf("extprocv3.ProcessingRequest_RequestHeaders %v \n", v)
 		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
 
-		// define the request context (requires _not_ skipping request headers)
-		if rc != nil {
-			log.Printf("Request context is not nil in request headers phase")
-		}
+		// initialize request context (requires _not_ skipping request headers)
 		err = initReqCtx(rc, h.Headers)
 
 		ps = time.Now()
 		err = processor.ProcessRequestHeaders(rc, h)
-		rc.duration += time.Since(ps).Nanoseconds()
+		rc.Duration += time.Since(ps).Nanoseconds()
 		break
 
 	case *extprocv3.ProcessingRequest_RequestBody:
@@ -111,7 +108,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		ps = time.Now()
 		err = processor.ProcessRequestBody(rc, b)
-		rc.duration += time.Since(ps).Nanoseconds()
+		rc.Duration += time.Since(ps).Nanoseconds()
 		break
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
@@ -121,7 +118,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		ps = time.Now()
 		err = processor.ProcessRequestTrailers(rc, t)
-		rc.duration += time.Since(ps).Nanoseconds()
+		rc.Duration += time.Since(ps).Nanoseconds()
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
@@ -131,7 +128,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		ps = time.Now()
 		err = processor.ProcessResponseHeaders(rc, h)
-		rc.duration += time.Since(ps).Nanoseconds()
+		rc.Duration += time.Since(ps).Nanoseconds()
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
@@ -141,7 +138,7 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		ps = time.Now()
 		err = processor.ProcessResponseBody(rc, b)
-		rc.duration += time.Since(ps).Nanoseconds()
+		rc.Duration += time.Since(ps).Nanoseconds()
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
@@ -151,14 +148,14 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		ps = time.Now()
 		err = processor.ProcessResponseTrailers(rc, t)
-		rc.duration += time.Since(ps).Nanoseconds()
+		rc.Duration += time.Since(ps).Nanoseconds()
 		break
 
 	default:
 		log.Printf("Unknown Request type %v\n", v)
 		err = errors.New("Unknown request type")
 	}
-	
+
 	log.Printf("Request Context %v \n", rc)
 
 	if err != nil {
