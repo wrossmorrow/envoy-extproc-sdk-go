@@ -16,35 +16,36 @@ Several examples are provided here in the [examples](#examples), which can be re
 This SDK uses a `struct`
 ```go
 type GenericExtProcServer struct {
-	name      string
-	processor requestProcessor
+    name      string
+    processor requestProcessor
 }
 ```
 an interface 
 ```go
 type RequestProcessor interface {
-	ProcessRequestHeaders(ctx *requestContext, headers map[string][]string) error
-	ProcessRequestBody(ctx *requestContext, body []byte]) error
-	ProcessRequestTrailers(ctx *requestContext, trailers map[string][]string) error
-	ProcessResponseHeaders(ctx *requestContext, headers map[string][]string) error
-	ProcessResponseBody(ctx *requestContext, body []byte) error
-	ProcessResponseTrailers(ctx *requestContext, trailers map[string][]string) error
+    GetName() string
+    ProcessRequestHeaders(ctx *requestContext, headers map[string][]string) error
+    ProcessRequestBody(ctx *requestContext, body []byte]) error
+    ProcessRequestTrailers(ctx *requestContext, trailers map[string][]string) error
+    ProcessResponseHeaders(ctx *requestContext, headers map[string][]string) error
+    ProcessResponseBody(ctx *requestContext, body []byte) error
+    ProcessResponseTrailers(ctx *requestContext, trailers map[string][]string) error
 }
 ```
 and a context object
 ```go
 type RequestContext struct {
-	Scheme      string
-	Authority   string
-	Method      string
-	Path        string
-	RequestId   string
-	Headers     map[string][]string
-	Started     time.Time
-	Duration    time.Duration
-	EndOfStream bool
-	data        map[string]interface{}
-	response    PhaseResponse
+    Scheme      string
+    Authority   string
+    Method      string
+    Path        string
+    RequestId   string
+    Headers     map[string][]string
+    Started     time.Time
+    Duration    time.Duration
+    EndOfStream bool
+    data        map[string]interface{}
+    response    PhaseResponse
 }
 ```
 that work together to allow processing of requests and responses. An ExtProc service can be run with the `Serve` method as in
@@ -52,26 +53,26 @@ that work together to allow processing of requests and responses. An ExtProc ser
 import  "github.com/wrossmorrow/envoy-extproc-sdk-go"
 
 func main() {
-	extproc.Serve(50051, myRequestProcessor{})
+    extproc.Serve(50051, myRequestProcessor{})
 }
 ```
 or directly if you want finer grained control with code like
 ```go
 import (
-	...
-	"github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-	epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+    ...
+    "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+    epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
 func main() {
 
-	...
+    ...
 
-	service := &extproc.GenericExtProcServer{
-		name:      "trivial",
-		processor: &myRequestProcessor{},
-	}
-	epb.RegisterExternalProcessorServer(s, service)
+    service := &extproc.GenericExtProcServer{
+        name:      "trivial",
+        processor: &myRequestProcessor{},
+    }
+    epb.RegisterExternalProcessorServer(s, service)
 
 }
 ```
