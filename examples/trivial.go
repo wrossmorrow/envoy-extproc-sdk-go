@@ -10,6 +10,10 @@ func (s trivialRequestProcessor) GetName() string {
 	return "trivial"
 }
 
+func (s trivialRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return nil
+}
+
 func (s trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	ctx.AddHeader("x-extproc-request", "seen")
 	return ctx.ContinueRequest() // returns an error if response malformed

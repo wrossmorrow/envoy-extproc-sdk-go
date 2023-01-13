@@ -26,7 +26,8 @@ func Serve(port int, processor RequestProcessor) {
 	s := grpc.NewServer(sopts...)
 
 	name := processor.GetName()
-	extproc := &GenericExtProcServer{name: name, processor: &processor}
+	opts := processor.GetOptions()
+	extproc := &GenericExtProcServer{name: name, processor: &processor, options: opts}
 	epb.RegisterExternalProcessorServer(s, extproc)
 	hpb.RegisterHealthServer(s, &HealthServer{})
 

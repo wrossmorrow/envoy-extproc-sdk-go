@@ -21,6 +21,10 @@ func (s echoRequestProcessor) GetName() string {
 	return "echo"
 }
 
+func (s echoRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return nil
+}
+
 func (s echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {
 	echoPathRx, _ := regexp.Compile("/echo/.*")
 	ctx.SetValue("echoPath", echoPathRx)

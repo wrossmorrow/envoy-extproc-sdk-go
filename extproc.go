@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"strings"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -15,6 +16,7 @@ import (
 
 type RequestProcessor interface {
 	GetName() string
+	GetOptions() *ProcessingOptions
 	ProcessRequestHeaders(ctx *RequestContext, headers map[string][]string) error
 	ProcessRequestBody(ctx *RequestContext, body []byte) error
 	ProcessRequestTrailers(ctx *RequestContext, trailers map[string][]string) error
@@ -26,6 +28,7 @@ type RequestProcessor interface {
 type GenericExtProcServer struct {
 	name      string
 	processor *RequestProcessor
+	options   *ProcessingOptions
 }
 
 func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
@@ -36,12 +39,22 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		log.Fatalf("cannot process request stream without `processor` interface")
 	}
 
-	log.Println("Starting request stream")
+	if s.options == nil {
+		s.options = NewOptions()
+	}
+
+	if s.options.LogStream {
+		log.Printf("Starting request stream in \"%s\"", s.name)
+	}
+
 	ctx := srv.Context()
 	for {
 
 		select {
 		case <-ctx.Done():
+			if s.options.LogStream {
+				log.Printf("Request stream terminated in \"%s\"", s.name)
+			}
 			return ctx.Err()
 		default:
 		}
@@ -61,7 +74,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		if rc != nil {
 			rc.ResetPhase()
 		}
-		resp, err := processPhase(req, *(s.processor), rc)
+		resp, err := s.processPhase(req, *(s.processor), rc)
 
 		if err != nil {
 			log.Printf("Phase processing error %v", err)
@@ -69,7 +82,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			log.Printf("Phase processing did not define a response")
 			// TODO: what here?
 		} else {
-			log.Printf("Sending ProcessingResponse: %v \n", resp)
+			if s.options.LogPhases {
+				log.Printf("Sending ProcessingResponse: %v \n", resp)
+			}
 			if err := srv.Send(resp); err != nil {
 				log.Printf("Send error %v", err)
 			}
@@ -78,7 +93,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	} // end for over stream messages
 }
 
-func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
+func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
 
 	var (
 		ps  time.Time
@@ -95,7 +110,9 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_RequestHeaders:
 		phase = REQUEST_PHASE_REQUEST_HEADERS
-		log.Printf("Processing Request Headers: %v \n", v)
+		if s.options.LogPhases {
+			log.Printf("Processing Request Headers: %v \n", v)
+		}
 		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
 
 		// initialize request context (requires _not_ skipping request headers)
@@ -104,12 +121,26 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 		ps = time.Now()
 		err = processor.ProcessRequestHeaders(rc, rc.Headers)
+		// TODO: _Could_ stack processors internally, e.g.
+		// 
+		// 		for _, p := range s.processors { err = p.ProcessRequestHeaders(...); if err != nil { break } }
+		// 
+		// This might get confusing though? Also response phase order
+		// would need to be inverted. 
+		// 
+		// In any case, it would be a distinctly different behavior than 
+		// stacking ExtProcs in envoy. Until there is a need for this, 
+		// it's much easier to reason about one processor per ExtProc. 
+		// Users can "stack" whatever behaviors they like in the processors
+		// themselves anyway. 
 		rc.Duration += time.Since(ps)
 		break
 
 	case *extprocv3.ProcessingRequest_RequestBody:
 		phase = REQUEST_PHASE_REQUEST_BODY
-		log.Printf("Processing Request Body: %v \n", v)
+		if s.options.LogPhases {
+			log.Printf("Processing Request Body: %v \n", v)
+		}
 		b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
 		rc.EndOfStream = b.EndOfStream
 
@@ -120,7 +151,9 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
 		phase = REQUEST_PHASE_REQUEST_TRAILERS
-		log.Printf("Processing Request Trailers: %v \n", v)
+		if s.options.LogPhases {
+			log.Printf("Processing Request Trailers: %v \n", v)
+		}
 		ts := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
 
 		trailers := make(map[string][]string)
@@ -135,10 +168,13 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		phase = REQUEST_PHASE_RESPONSE_HEADERS
-		log.Printf("Processing Response Headers: %v \n", v)
+		if s.options.LogPhases {
+			log.Printf("Processing Response Headers: %v \n", v)
+		}
 		hs := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
 		rc.EndOfStream = hs.EndOfStream
 
+		// _response_ headers
 		headers := make(map[string][]string)
 		for _, h := range hs.Headers.Headers {
 			headers[h.Key] = strings.Split(h.Value, ",")
@@ -147,22 +183,39 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		ps = time.Now()
 		err = processor.ProcessResponseHeaders(rc, headers)
 		rc.Duration += time.Since(ps)
+
+		if s.options.UpdateExtProcHeader {
+			rc.AppendHeader("x-extproc-names", s.name)
+		}
+		if rc.EndOfStream && s.options.UpdateDurationHeader {
+			rc.AppendHeader("x-extproc-duration-ns", strconv.FormatInt(rc.Duration.Nanoseconds(), 10))
+		}
+
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
 		phase = REQUEST_PHASE_RESPONSE_BODY
-		log.Printf("Processing Response Body: %v \n", v)
+		if s.options.LogPhases {
+			log.Printf("Processing Response Body: %v \n", v)
+		}
 		b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
 		err = processor.ProcessResponseBody(rc, b.Body)
 		rc.Duration += time.Since(ps)
+
+		if rc.EndOfStream && s.options.UpdateDurationHeader {
+			rc.AppendHeader("x-extproc-duration-ns", strconv.FormatInt(rc.Duration.Nanoseconds(), 10))
+		}
+
 		break
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
 		phase = REQUEST_PHASE_RESPONSE_TRAILERS
-		log.Printf("Processing Response Trailers: %v \n", v)
+		if s.options.LogPhases {
+			log.Printf("Processing Response Trailers: %v \n", v)
+		}
 		ts := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
 
 		trailers := make(map[string][]string)
@@ -176,7 +229,9 @@ func processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, 
 		break
 
 	default:
-		log.Printf("Unknown Request type %v\n", v)
+		if s.options.LogPhases {
+			log.Printf("Unknown Request type: %v\n", v)
+		}
 		err = errors.New("Unknown request type")
 	}
 

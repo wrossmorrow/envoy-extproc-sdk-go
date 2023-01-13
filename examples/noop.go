@@ -10,6 +10,15 @@ func (s noopRequestProcessor) GetName() string {
 	return "noop"
 }
 
+func (s noopRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	opts := ep.NewOptions()
+	opts.LogStream = true
+	opts.LogPhases = true
+	opts.UpdateExtProcHeader = true
+	opts.UpdateDurationHeader = true
+	return opts
+}
+
 func (s noopRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	return ctx.ContinueRequest()
 }

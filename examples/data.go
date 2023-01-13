@@ -11,6 +11,10 @@ func (s dataRequestProcessor) GetName() string {
 	return "data"
 }
 
+func (s dataRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return nil
+}
+
 func (s dataRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	ctx.SetValue("customId", uuid.New())
 	return ctx.ContinueRequest() // returns an error if response malformed

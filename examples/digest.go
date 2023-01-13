@@ -22,6 +22,10 @@ func (s digestRequestProcessor) GetName() string {
 	return "digest"
 }
 
+func (s digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return nil
+}
+
 func (s digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 
 	hasher := sha256.New()

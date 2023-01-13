@@ -13,6 +13,10 @@ func (s timerRequestProcessor) GetName() string {
 	return "timer"
 }
 
+func (s timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return nil
+}
+
 func (s timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 
 	ctx.OverwriteHeader("x-extproc-started-ns", strconv.FormatInt(ctx.Started.UnixNano(), 10))
