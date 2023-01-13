@@ -74,24 +74,36 @@ func main() {
     }
     epb.RegisterExternalProcessorServer(s, service)
 
+    ...
+
 }
 ```
-for a "known" `struct` `trivialRequestProcessor` implementing the `interface` `requestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK. 
+for `myRequestProcessor` implementing `RequestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important. 
 
 ### Context Data
 
-The `RequestContext` is initialized with request data when request headers are received, implying that the `envoy` configuration should always have `processing_mode.request_header_mode: SEND`. Basic request data (method, path etc) are only available in this phase. 
+The `RequestContext` is initialized with request data when request headers are received, implying that the `envoy` configuration should always have `processing_mode.request_header_mode: SEND`. Basic request data (method, path etc) are only available in this phase. As shown in the spec above, this data includes
+* the HTTP `Scheme`
+* the `Authority` (host)
+* the HTTP `Method`
+* the URL `Path`
+* `envoy`'s `RequestId` (a UUID from the `x-request-id` header)
+* the request processing stream start time in `Started`
+* an accumulator `Duration` _for the time spent in external processing_
+* a flag `EndOfStream` from gRPC messages for header and body phases
 
-This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot (`data`) for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. 
+This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `interface{}`, so to use them you must re-type the data upoin retrieval. See the [data](#data) or [digest](#digest) examples. 
 
 ### Forming Responses
 
-Other methods provide some convenience routines for operating on request/response headers, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. In particular, the methods
+We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
+
+In particular, the methods
 ```go
 (rc *RequestContext) ContinueRequest() error
 (rc *RequestContext) CancelRequest(status int32, headers map[string]string, body string) error
 ```
-define request phase responses. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
+define request phase responses for "continuing" and "responding immediately". Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. 
 
 ### Modifying Headers
 
@@ -124,7 +136,7 @@ You can run all the examples with
 ```shell
 cd examples && just up
 ```
-or if you don't use `just`
+or if you don't use [`just`](https://github.com/casey/just), 
 ```shell
 cd examples && docker-compose build && docker-compose up
 ```
