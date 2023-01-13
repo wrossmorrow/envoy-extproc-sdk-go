@@ -1,18 +1,17 @@
 package main
 
 import (
-	"flag"
 	"strconv"
 	"time"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
-var (
-	port = *flag.Int("port", 50051, "gRPC port (default: 50051)")
-)
-
 type timerRequestProcessor struct{}
+
+func (s timerRequestProcessor) GetName() string {
+	return "timer"
+}
 
 func (s timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 
@@ -54,12 +53,4 @@ func (s timerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body 
 
 func (s timerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
-}
-
-func main() {
-	flag.Parse()
-
-	eps := make(map[string]ep.RequestProcessor)
-	eps["timing"] = timerRequestProcessor{}
-	ep.Serve(port, eps)
 }

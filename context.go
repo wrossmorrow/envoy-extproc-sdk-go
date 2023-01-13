@@ -272,7 +272,17 @@ func (rc *RequestContext) RemoveHeader(name string) error {
 	return nil
 }
 
-func (rc *RequestContext) RemoveHeaders(headers ...string) error {
+func (rc *RequestContext) RemoveHeaders(headers []string) error {
+	hm := rc.response.headerMutation
+	for _, h := range headers {
+		if !StrInSlice(hm.RemoveHeaders, h) {
+			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
+		}
+	}
+	return nil
+}
+
+func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	hm := rc.response.headerMutation
 	for _, h := range headers {
 		if !StrInSlice(hm.RemoveHeaders, h) {

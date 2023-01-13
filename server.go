@@ -15,7 +15,7 @@ import (
 	hpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func Serve(port int, processors map[string]RequestProcessor) {
+func Serve(port int, processor RequestProcessor) {
 
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
@@ -25,17 +25,12 @@ func Serve(port int, processors map[string]RequestProcessor) {
 	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(1000)}
 	s := grpc.NewServer(sopts...)
 
-	for n, p := range processors {
-		log.Printf("Registering ExtProc \"%s\"\n", n)
-		extproc := &GenericExtProcServer{
-			name:      n,
-			processor: &p,
-		}
-		epb.RegisterExternalProcessorServer(s, extproc)
-	}
+	name := processor.GetName()
+	extproc := &GenericExtProcServer{name: name, processor: &processor}
+	epb.RegisterExternalProcessorServer(s, extproc)
 	hpb.RegisterHealthServer(s, &HealthServer{})
 
-	log.Printf("Starting ExtProc server on port %d\n", port)
+	log.Printf("Starting ExtProc(%s) on port %d\n", name, port)
 
 	var gracefulStop = make(chan os.Signal)
 	signal.Notify(gracefulStop, syscall.SIGTERM)

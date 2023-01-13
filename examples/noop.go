@@ -6,6 +6,10 @@ import (
 
 type noopRequestProcessor struct{}
 
+func (s noopRequestProcessor) GetName() string {
+	return "noop"
+}
+
 func (s noopRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	return ctx.ContinueRequest()
 }

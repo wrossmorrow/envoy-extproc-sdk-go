@@ -1,18 +1,15 @@
 
-image_name := "envoy-extproc-sdk-go"
+image_name := "envoy-extproc-sdk-go-examples"
 image_tag := `git rev-parse HEAD`
-generated_code := "gen/proto/go"
-
-version := "v0"
 
 update:
-    go get -u ./.. && just tidy
+    go get -u ./ && just tidy
 
 tidy:
-    for D in $( find . -type d ) ; do go mod tidy ; done
+    go mod tidy
 
 format:
-    for D in $( find . -type d ) ; do go fmt $D/*.go ; done
+    go fmt *.go
 
 unit-test: 
     echo "TBD"
@@ -24,15 +21,13 @@ coverage:
     echo "TBD"
 
 run EXAMPLE="noop" *FLAGS="":
-    go run {{EXAMPLE}}/*.go {{FLAGS}}
+    go run *.go {{FLAGS}} {{EXAMPLE}}
 
-build EXAMPLE="noop" *FLAGS="":
-    go build {{EXAMPLE}} {{FLAGS}}
+build *FLAGS="":
+    go build {{FLAGS}}
 
-containerize EXAMPLE="noop" *FLAGS="": 
-    docker build . \
-        -t {{image_name}}-{{EXAMPLE}}:{{image_tag}} \
-        --build-arg EXAMPLE={{EXAMPLE}} \
+containerize *FLAGS="": 
+    docker build . -t {{image_name}}-examples:{{image_tag}} \
         {{FLAGS}}
 
 up:

@@ -1,8 +1,11 @@
-module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/echo
+module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/data
 
 go 1.19
 
-require github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.16
+require (
+	github.com/google/uuid v1.3.0
+	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.16
+)
 
 require (
 	github.com/cncf/xds/go v0.0.0-20230112175826-46e39c7b9b43 // indirect

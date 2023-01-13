@@ -14,6 +14,7 @@ import (
 )
 
 type RequestProcessor interface {
+	GetName() string
 	ProcessRequestHeaders(ctx *RequestContext, headers map[string][]string) error
 	ProcessRequestBody(ctx *RequestContext, body []byte) error
 	ProcessRequestTrailers(ctx *RequestContext, trailers map[string][]string) error
@@ -56,7 +57,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		// clear response in the context if defined, this is not
 		// carried across request phases because each one has an
 		// idiosyncratic response. rc gets "initialized" during
-		// RequestHeaders phase processing. 
+		// RequestHeaders phase processing.
 		if rc != nil {
 			rc.ResetPhase()
 		}

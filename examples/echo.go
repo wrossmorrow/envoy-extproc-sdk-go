@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"regexp"
 	"strings"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
@@ -17,8 +17,22 @@ func joinHeaders(mvhs map[string][]string) map[string]string {
 	return hs
 }
 
+func (s echoRequestProcessor) GetName() string {
+	return "echo"
+}
+
+func (s echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {
+	echoPathRx, _ := regexp.Compile("/echo/.*")
+	ctx.SetValue("echoPath", echoPathRx)
+	return nil
+}
+
 func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
-	log.Printf("Method: %s", ctx.Method)
+
+	match, _ := regexp.MatchString("/echo/.*", ctx.Path)
+	if !match {
+		return ctx.ContinueRequest()
+	}
 
 	if ctx.EndOfStream {
 		return ctx.CancelRequest(200, joinHeaders(ctx.Headers), "")
@@ -36,6 +50,10 @@ func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, head
 }
 
 func (s echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
+	match, _ := regexp.MatchString("/echo/.*", ctx.Path)
+	if !match {
+		return ctx.ContinueRequest()
+	}
 	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body))
 }
 

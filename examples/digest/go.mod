@@ -1,4 +1,4 @@
-module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/echo
+module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/digest
 
 go 1.19
 

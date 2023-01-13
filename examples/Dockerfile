@@ -17,7 +17,7 @@ WORKDIR /app
 
 ARG EXAMPLE=noop
 
-COPY ${EXAMPLE}/go.mod ${EXAMPLE}/*.go  ./
+COPY go.mod *.go ./
 RUN sed -Ei.bak '/replace github\.com\/wrossmorrow\/envoy-extproc-sdk-go/d' go.mod \
     && go mod tidy \
     && go mod download \

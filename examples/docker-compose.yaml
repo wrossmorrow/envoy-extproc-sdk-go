@@ -69,6 +69,20 @@ services:
       dockerfile: Dockerfile
       args:
         EXAMPLE: timer
+  data:
+    image: envoy-extproc-sdk-go-data:${IMAGE_TAG:-compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXAMPLE: data
+  digest:
+    image: envoy-extproc-sdk-go-digest:${IMAGE_TAG:-compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXAMPLE: digest
   echo:
     image: envoy-extproc-sdk-go-echo:${IMAGE_TAG:-compose}
     build:
