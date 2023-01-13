@@ -26,70 +26,39 @@ services:
 
   # extprocs
 
-  # noop:
-  #   image: envoy-extproc-sdk-go-all:${IMAGE_TAG:-compose}
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.examples
-  #   command: 
-  #     - go
-  #     - run
-  #     - noop/*.go
-  # trivial:
-  #   image: envoy-extproc-sdk-go-all:${IMAGE_TAG:-compose}
-  #   command: 
-  #     - go
-  #     - run
-  #     - trivial/*.go
-  # timing:
-  #   image: envoy-extproc-sdk-go-all:${IMAGE_TAG:-compose}
-  #   command: 
-  #     - go
-  #     - run
-  #     - timing/*.go
-
   noop:
-    image: envoy-extproc-sdk-go-noop:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        EXAMPLE: noop
+    command:
+      - /extproc
+      - noop
   trivial:
-    image: envoy-extproc-sdk-go-trivial:${IMAGE_TAG:-compose}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        EXAMPLE: trivial
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
+    command:
+      - /extproc
+      - trivial
   timer:
-    image: envoy-extproc-sdk-go-timing:${IMAGE_TAG:-compose}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        EXAMPLE: timer
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
+    command:
+      - /extproc
+      - timer
   data:
-    image: envoy-extproc-sdk-go-data:${IMAGE_TAG:-compose}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        EXAMPLE: data
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
+    command:
+      - /extproc
+      - data
   digest:
-    image: envoy-extproc-sdk-go-digest:${IMAGE_TAG:-compose}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        EXAMPLE: digest
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
+    command:
+      - /extproc
+      - digest
   echo:
-    image: envoy-extproc-sdk-go-echo:${IMAGE_TAG:-compose}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        EXAMPLE: echo
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
+    command:
+      - /extproc
+      - echo
 
   # trivial:
   #   hostname: 'trivial'

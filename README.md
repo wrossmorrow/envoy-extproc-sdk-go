@@ -119,22 +119,76 @@ TBD
 
 ## Examples
 
+You can run all the examples with 
+```shell
+cd examples && just up
+```
+or if you don't use `just`
+```shell
+cd examples && docker-compose build && docker-compose up
+```
+The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `examples/_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
+
+Here is some sample output with the compose setup running: 
+```shell
+$ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' -s -vvv | jq .
+
+...
+
+< HTTP/1.1 200 OK
+< date: Fri, 13 Jan 2023 03:03:40 GMT
+< content-type: text/plain; charset=utf-8
+< x-envoy-upstream-service-time: 1
+< x-extproc-request-digest: 7894e8a366f3fd045ad54c8c99fe850f0ca8b753e8590e67bb32a8f732b91c7b
+< x-extproc-custom-data: fd48e7dc-52b5-4949-82fe-bbefe469a260
+< x-extproc-started-ns: 1673579020033620493
+< x-extproc-finished-ns: 1673579020045024238
+< x-upstream-duration-ns: 11403835
+< x-extproc-response: seen
+< server: envoy
+< transfer-encoding: chunked
+< 
+{ [399 bytes data]
+* Connection #0 to host localhost left intact
+* Closing connection 0
+{
+  "Datetime": "2023-01-13 03:03:40.04061491 +0000 UTC",
+  "Method": "POST",
+  "Path": "/resource",
+  "Headers": {
+    "Accept": "*/*,",
+    "Content-Type": "text/plain,",
+    "User-Agent": "curl/7.64.1,",
+    "X-Envoy-Expected-Rq-Timeout-Ms": "15000,",
+    "X-Extproc-Request": "seen,",
+    "X-Extproc-Started-Ns": "1673579020033620493,",
+    "X-Forwarded-Proto": "http,",
+    "X-Request-Id": "f912b241-73de-4f87-908a-2fe7ea5692b1,"
+  },
+  "Body": "hello"
+}
+```
+
 ### No-op
 
-The `noopRequestProcessor` defined in `examples/noop/main.go` does absolutely nothing, except print logs. 
+The `noopRequestProcessor` defined in `examples/noop.go` does absolutely nothing, except print logs. 
 
 ### Trivial
 
-The `trivialRequestProcessor` defined in `examples/trivial/main.go` does very little: adds a header to the request sent to an upstream target and a similar header in the response to the client that simply declare the request passed through the processor. 
+The `trivialRequestProcessor` defined in `examples/trivial.go` does very little: adds a header to the request sent to an upstream target and a similar header in the response to the client that simply declare the request passed through the processor. 
 
 ### Timer
 
-The `timerRequestProcessor` defined in `examples/timer/main.go` adds timing headers: one to the request sent to the upstream with the Unix UTC (ns) time when the request started processing, and similar started, finished, and duration headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
+The `timerRequestProcessor` defined in `examples/timer.go` adds timing headers: one to the request sent to the upstream with the Unix UTC (ns) time when the request started processing, and similar started, finished, and duration headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
 
 ### Data
 
-The `dataRequestProcessor` defined in `examples/data/main.go` stores custom data on the request headers phase and adds that data as a header to the response for the downstream client. 
+The `dataRequestProcessor` defined in `examples/data.go` stores custom data on the request headers phase and adds that data as a header to the response for the downstream client. 
+
+### Digest
+
+The `digestRequestProcessor` defined in `examples/digest.go` computes a digest of the request, using `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash). 
 
 ### Echo
 
-The `echoRequestProcessor` defined in `examples/echo/main.go` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target. 
+The `echoRequestProcessor` defined in `examples/echo.go` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target. 
