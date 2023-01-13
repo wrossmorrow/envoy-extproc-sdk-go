@@ -14,7 +14,11 @@ func (s timerRequestProcessor) GetName() string {
 }
 
 func (s timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	return nil
+	opts := ep.NewOptions()
+	opts.LogPhases = true
+	opts.UpdateExtProcHeader = true
+	opts.UpdateDurationHeader = true
+	return opts
 }
 
 func (s timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {

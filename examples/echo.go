@@ -22,7 +22,10 @@ func (s echoRequestProcessor) GetName() string {
 }
 
 func (s echoRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	return nil
+	opts := ep.NewOptions()
+	opts.UpdateExtProcHeader = true
+	opts.UpdateDurationHeader = true
+	return opts
 }
 
 func (s echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {

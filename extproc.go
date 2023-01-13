@@ -183,7 +183,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		ps = time.Now()
 		err = processor.ProcessResponseHeaders(rc, headers)
 		rc.Duration += time.Since(ps)
-
+		
 		if s.options.UpdateExtProcHeader {
 			rc.AppendHeader("x-extproc-names", s.name)
 		}

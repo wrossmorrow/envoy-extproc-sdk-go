@@ -136,6 +136,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 	if rc.response.immediateResponse != nil {
 		switch phase {
 		case REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_REQUEST_BODY, REQUEST_PHASE_RESPONSE_HEADERS, REQUEST_PHASE_RESPONSE_BODY:
+			// TODO: post-process modifications?
 			return &extprocv3.ProcessingResponse{
 				Response: &extprocv3.ProcessingResponse_ImmediateResponse{
 					ImmediateResponse: rc.response.immediateResponse,
@@ -148,7 +149,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 		}
 	}
 
-	// handle "common" responses
+	// handle "common" responses (immediateResponse == nil and/or phase ignored)
 
 	// presume no-op if common response wrapper is not defined
 	// if rc.response.headerMutation == nil {
@@ -157,6 +158,9 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 	if rc.response.continueRequest == nil {
 		rc.response.continueRequest = &extprocv3.CommonResponse{}
 	}
+
+	// HACK: (?) this means any post-process modifications are added
+	rc.ContinueRequest()
 
 	switch phase {
 	case REQUEST_PHASE_REQUEST_HEADERS:
@@ -215,11 +219,12 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 
 func (rc *RequestContext) UpdateHeader(name string, value string, action string) error {
 	hm := rc.response.headerMutation
+	aa := corev3.HeaderValueOption_HeaderAppendAction(
+		corev3.HeaderValueOption_HeaderAppendAction_value[action],
+	)
 	h := &corev3.HeaderValueOption{
 		Header: &corev3.HeaderValue{Key: name, Value: value},
-		AppendAction: corev3.HeaderValueOption_HeaderAppendAction(
-			corev3.HeaderValueOption_HeaderAppendAction_value[action],
-		),
+		AppendAction: aa,
 	}
 	hm.SetHeaders = append(hm.SetHeaders, h)
 	return nil
@@ -239,13 +244,13 @@ func (rc *RequestContext) OverwriteHeader(name string, value string) error {
 
 func (rc *RequestContext) UpdateHeaders(headers map[string]string, action string) error {
 	hm := rc.response.headerMutation
-	a := corev3.HeaderValueOption_HeaderAppendAction(
+	aa := corev3.HeaderValueOption_HeaderAppendAction(
 		corev3.HeaderValueOption_HeaderAppendAction_value[action],
 	)
 	for k, v := range headers {
 		h := &corev3.HeaderValueOption{
 			Header:       &corev3.HeaderValue{Key: k, Value: v},
-			AppendAction: a,
+			AppendAction: aa,
 		}
 		hm.SetHeaders = append(hm.SetHeaders, h)
 	}

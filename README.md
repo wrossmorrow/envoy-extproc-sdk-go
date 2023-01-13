@@ -24,6 +24,7 @@ an interface
 ```go
 type RequestProcessor interface {
     GetName() string
+    GetOptions() *ProcessingOptions
     ProcessRequestHeaders(ctx *requestContext, headers map[string][]string) error
     ProcessRequestBody(ctx *requestContext, body []byte]) error
     ProcessRequestTrailers(ctx *requestContext, trailers map[string][]string) error
@@ -145,19 +146,30 @@ The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (
 Here is some sample output with the compose setup running: 
 ```shell
 $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' -s -vvv | jq .
-
-...
-
+*   Trying ::1...
+* TCP_NODELAY set
+* Connected to localhost (::1) port 8080 (#0)
+> POST /resource HTTP/1.1
+> Host: localhost:8080
+> User-Agent: curl/7.64.1
+> Accept: */*
+> Content-type: text/plain
+> Content-Length: 5
+> 
+} [5 bytes data]
+* upload completely sent off: 5 out of 5 bytes
 < HTTP/1.1 200 OK
-< date: Fri, 13 Jan 2023 03:03:40 GMT
+< date: Fri, 13 Jan 2023 19:52:19 GMT
 < content-type: text/plain; charset=utf-8
-< x-envoy-upstream-service-time: 1
+< x-envoy-upstream-service-time: 3
 < x-extproc-request-digest: 7894e8a366f3fd045ad54c8c99fe850f0ca8b753e8590e67bb32a8f732b91c7b
-< x-extproc-custom-data: fd48e7dc-52b5-4949-82fe-bbefe469a260
-< x-extproc-started-ns: 1673579020033620493
-< x-extproc-finished-ns: 1673579020045024238
-< x-upstream-duration-ns: 11403835
+< x-extproc-custom-data: 39d0739f-da17-44c7-a864-5003ac20f509
+< x-extproc-started-ns: 1673639539607694718
+< x-extproc-finished-ns: 1673639539625057563
+< x-upstream-duration-ns: 17362958
 < x-extproc-response: seen
+< x-extproc-names: noop
+< x-extproc-duration-ns: 3408
 < server: envoy
 < transfer-encoding: chunked
 < 
@@ -165,7 +177,7 @@ $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' 
 * Connection #0 to host localhost left intact
 * Closing connection 0
 {
-  "Datetime": "2023-01-13 03:03:40.04061491 +0000 UTC",
+  "Datetime": "2023-01-13 19:52:19.62091161 +0000 UTC",
   "Method": "POST",
   "Path": "/resource",
   "Headers": {
@@ -174,9 +186,9 @@ $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' 
     "User-Agent": "curl/7.64.1,",
     "X-Envoy-Expected-Rq-Timeout-Ms": "15000,",
     "X-Extproc-Request": "seen,",
-    "X-Extproc-Started-Ns": "1673579020033620493,",
+    "X-Extproc-Started-Ns": "1673639539607694718,",
     "X-Forwarded-Proto": "http,",
-    "X-Request-Id": "f912b241-73de-4f87-908a-2fe7ea5692b1,"
+    "X-Request-Id": "00859d5c-7018-4629-b7e8-04878334c808,"
   },
   "Body": "hello"
 }
@@ -184,7 +196,7 @@ $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' 
 
 ### No-op
 
-The `noopRequestProcessor` defined in `examples/noop.go` does absolutely nothing, except print logs. 
+The `noopRequestProcessor` defined in `examples/noop.go` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-names` are added to the response to the client. These headers are not injected from the processor, but rather the SDK. 
 
 ### Trivial
 

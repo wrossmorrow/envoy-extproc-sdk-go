@@ -12,7 +12,10 @@ func (s dataRequestProcessor) GetName() string {
 }
 
 func (s dataRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	return nil
+	opts := ep.NewOptions()
+	opts.UpdateExtProcHeader = true
+	opts.UpdateDurationHeader = true
+	return opts
 }
 
 func (s dataRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
