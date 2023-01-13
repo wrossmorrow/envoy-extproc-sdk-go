@@ -9,7 +9,7 @@
 
 We attempt to achieve this ease largely by masking some of the details behind the datastructures `envoy` uses, which are effective but verbose and idiosyncratic. Each request generates a bidirectional gRPC stream (with at most 6 messages) and sends, in turn, data concerning request headers, request body, request trailers, response headers, response body, and response trailers (if `envoy` is configured to send all phases). The idea here is to supply functions for each phase that operate on a context and more generically typed data suitable for each phase. (See details below.)
 
-Several examples are provided here in `examples/**/main.go`, which can be reviewed to examine usage patterns. 
+Several examples are provided here in the [examples](#examples), which can be reviewed to examine usage patterns. 
 
 ## Usage
 
@@ -52,9 +52,7 @@ that work together to allow processing of requests and responses. An ExtProc ser
 import  "github.com/wrossmorrow/envoy-extproc-sdk-go"
 
 func main() {
-	eps := make(map[string]extproc.RequestProcessor)
-	eps["myProcessor"] = myRequestProcessor{}
-	extproc.Serve(50051, eps)
+	extproc.Serve(50051, myRequestProcessor{})
 }
 ```
 or directly if you want finer grained control with code like
@@ -77,7 +75,9 @@ func main() {
 
 }
 ```
-for a "known" `struct` `trivialRequestProcessor` implementing the `interface` `requestProcessor`. The `genericExtProcServer` handles the gRPC communication and shared context, parsing the processing phase in the gRPC stream and calling the right `interface` method. The header and body methods can return either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. 
+for a "known" `struct` `trivialRequestProcessor` implementing the `interface` `requestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK. 
+
+### Context Data
 
 The `RequestContext` is initialized with request data when request headers are received, implying that the `envoy` configuration should always have `processing_mode.request_header_mode: SEND`. Basic request data (method, path etc) are only available in this phase. 
 
