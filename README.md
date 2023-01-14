@@ -13,6 +13,12 @@ Several examples are provided here in the [examples](#examples), which can be re
 
 ## Usage
 
+### TL;DR: 
+
+Implement the `extproc.RequestProcessor` interface, and pass an instance to the `extproc.Serve` function. 
+
+### Details
+
 This SDK uses a `struct`
 ```go
 type GenericExtProcServer struct {
