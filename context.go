@@ -295,3 +295,21 @@ func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	}
 	return nil
 }
+
+func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
+	rc.response.bodyMutation = &extprocv3.BodyMutation{
+		Mutation: &extprocv3.BodyMutation_Body{
+			Body: body,
+		},
+	}
+	return nil
+}
+
+func (rc *RequestContext) ClearBodyChunk() error {
+	rc.response.bodyMutation = &extprocv3.BodyMutation{
+		Mutation: &extprocv3.BodyMutation_ClearBody{
+			ClearBody: true,
+		},
+	}
+	return nil
+}

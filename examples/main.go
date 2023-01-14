@@ -18,6 +18,7 @@ var processors = map[string]ep.RequestProcessor{
 	"data":    dataRequestProcessor{},
 	"digest":  digestRequestProcessor{},
 	"dedup":   dedupRequestProcessor{},
+	"masker":  maskerRequestProcessor{},
 	"echo":    echoRequestProcessor{},
 }
 

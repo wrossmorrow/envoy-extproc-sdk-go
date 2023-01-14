@@ -3,7 +3,7 @@ requests:
       method: GET
       path: /some/path
       headers: 
-        Content-type: text/plain
+        content-type: text/plain
     response:
       status: 200
       headers: 
@@ -13,10 +13,21 @@ requests:
       method: PUT
       path: /some/resource
       headers: 
-        Content-type: application/json
+        content-type: application/json
       body: "{\"data\": \"here\"}"
     response:
       status: 201
       headers: 
         Content-type: application/json
+      body: "{\"id\": 0, \"data\": \"here\"}"
+  - request:
+      method: PUT
+      path: /some/resource
+      headers: 
+        content-type: application/json
+      body: "{\"maskme\": \"here\"}"
+    response:
+      status: 201
+      headers: 
+        content-type: application/json
       body: "{\"id\": 0, \"data\": \"here\"}"
