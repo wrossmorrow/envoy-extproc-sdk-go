@@ -48,8 +48,6 @@ func (s dedupRequestProcessor) GetName() string {
 
 func (s dedupRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	opts := ep.NewOptions()
-	opts.LogStream = true
-	opts.LogPhases = true
 	opts.UpdateExtProcHeader = true
 	opts.UpdateDurationHeader = true
 	return opts
