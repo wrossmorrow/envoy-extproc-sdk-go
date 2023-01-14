@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"crypto/sha256"
 	"encoding/hex"
 
@@ -22,12 +21,10 @@ func dedupable(ctx *ep.RequestContext) bool {
 }
 
 func cacheRequest(ctx *ep.RequestContext, digest string) {
-	log.Printf("  cache: %v", cache)
 	if cache == nil {
 		cache = make(map[string]bool)
 	}
 	cache[digest] = true
-	log.Printf("  cache: %v", cache)
 }
 
 func uncacheRequest(digest string) {
@@ -70,10 +67,7 @@ func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 		ctx.SetValue("digest", digest)
 		ctx.AddHeader("x-extproc-request-digest", digest)
 		if dedupable(ctx) {
-			log.Print("Request is de-dupable")
-			log.Printf("  digest: %s", digest)
 			if isRequestCached(digest) {
-				log.Print("Request is cached")
 				return ctx.CancelRequest(409, make(map[string]string), "")
 			} else {
 				cacheRequest(ctx, digest)
@@ -94,10 +88,7 @@ func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body [
 		ctx.SetValue("digest", digest)
 		ctx.AddHeader("x-extproc-request-digest", digest)
 		if dedupable(ctx) {
-			log.Print("Request is de-dupable")
-			log.Printf("  digest: %s", digest)
 			if isRequestCached(digest) {
-				log.Print("Request is cached")
 				return ctx.CancelRequest(409, make(map[string]string), "")
 			} else {
 				cacheRequest(ctx, digest)

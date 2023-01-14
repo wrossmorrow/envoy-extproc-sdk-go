@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/google/uuid v1.3.0
-	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.19
+	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.20
 )
 
 require (

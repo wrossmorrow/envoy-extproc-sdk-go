@@ -24,9 +24,7 @@ build *FLAGS="":
     go build {{FLAGS}}
 
 tag VERSION="":
-    git tag v{{VERSION}} \
-        && git push origin --tags \
-        && cd examples && just update
+    git tag v{{VERSION}} && git push origin --tags
 
 release VERSION="":
     git commit -m "release v{{VERSION}}" \

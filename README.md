@@ -214,6 +214,10 @@ The `dataRequestProcessor` defined in `examples/data.go` stores custom data on t
 
 The `digestRequestProcessor` defined in `examples/digest.go` computes a digest of the request, using `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash). 
 
+### Dedup
+
+The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of the request as above and uses that to reject requests when another request with the same digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query param to the proxied echo server to make one "long running" (`PUT`, `POST`, or `PATCH`) request in one terminal, and another similar request in another terminal and observe the second will have a 409 response. You can change the body in the second request and see it pass through. 
+
 ### Echo
 
 The `echoRequestProcessor` defined in `examples/echo.go` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target. 
