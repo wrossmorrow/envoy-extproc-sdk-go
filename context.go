@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log"
 	"strings"
-	// "strconv"
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -67,7 +66,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 			rc.Method = h.Value
 			break
 		case ":path":
-			rc.Path = h.Value
+			rc.Path = strings.Split(h.Value, "?")[0]
 			break
 		case "x-request-id":
 			rc.RequestId = h.Value
@@ -108,7 +107,7 @@ func (rc *RequestContext) ContinueRequest() error {
 		rc.response.immediateResponse = nil
 	}
 	rc.response.continueRequest = &extprocv3.CommonResponse{
-		// status?
+		// status? (ie response phase status)
 		HeaderMutation: rc.response.headerMutation,
 		BodyMutation:   rc.response.bodyMutation,
 		// trailers?
@@ -296,23 +295,3 @@ func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	}
 	return nil
 }
-
-// func (rc *RequestContext) StartedHeader() (*corev3.HeaderValueOption, error) {
-// 	return &corev3.HeaderValueOption{
-// 		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-// 		Header: &corev3.HeaderValue{
-// 			Key:   "x-extproc-started",
-// 			Value: string(strconv.FormatInt(rc.started, 10)),
-// 		},
-// 	}, nil
-// }
-
-// func (rc *RequestContext) DurationHeader() (*corev3.HeaderValueOption, error) {
-// 	return &corev3.HeaderValueOption{
-// 		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-// 		Header: &corev3.HeaderValue{
-// 			Key:   "x-extproc-duration",
-// 			Value: string(strconv.FormatInt(rc.duration, 10)),
-// 		},
-// 	}, nil
-// }

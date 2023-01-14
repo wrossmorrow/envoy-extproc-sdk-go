@@ -54,6 +54,11 @@ services:
     command:
       - /extproc
       - digest
+  dedup:
+    image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
+    command:
+      - /extproc
+      - dedup
   echo:
     image: envoy-extproc-sdk-go-examples:${IMAGE_TAG:-compose}
     command:

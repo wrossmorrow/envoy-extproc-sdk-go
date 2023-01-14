@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"strings"
 )
 
 var (
@@ -17,25 +18,21 @@ type Request struct {
 	Datetime string
 	Method   string
 	Path     string
-	Headers  map[string]string
+	Query    map[string][]string
+	Headers  map[string][]string
 	Body     string
 }
 
 func echo(w http.ResponseWriter, req *http.Request) {
 	log.Print("[" + time.Now().UTC().String() + "] " + req.Method + " " + req.URL.String())
+
 	r := Request{
 		Datetime: time.Now().UTC().String(),
 		Method:   req.Method,
-		Path:     req.URL.String(),
-		Headers:  make(map[string]string),
+		Path:     strings.Split(req.URL.String(), "?")[0],
+		Query:    req.URL.Query(),
+		Headers:  req.Header,
 		Body:     "",
-	}
-	for name, headers := range req.Header {
-		r.Headers[name] = ""
-		for _, h := range headers {
-			// w.Header().Set("X-Request-" + name, h)
-			r.Headers[name] += h + ","
-		}
 	}
 	if req.Body != nil {
 		bodyBytes, err := ioutil.ReadAll(req.Body)
@@ -47,6 +44,14 @@ func echo(w http.ResponseWriter, req *http.Request) {
 		defer req.Body.Close()
 	}
 	rb, _ := json.Marshal(r)
+
+	_, ok := r.Query["delay"]
+	if ok && len(r.Query["delay"]) > 0 {
+		delay, _ := time.ParseDuration(r.Query["delay"][0] + "s")
+		log.Printf("Delay: %v\n", delay)
+		time.Sleep(delay)
+	}
+
 	w.Write(rb)
 }
 

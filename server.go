@@ -26,8 +26,12 @@ func Serve(port int, processor RequestProcessor) {
 	s := grpc.NewServer(sopts...)
 
 	name := processor.GetName()
-	opts := processor.GetOptions()
-	extproc := &GenericExtProcServer{name: name, processor: &processor, options: opts}
+	opts := processor.GetOptions() // TODO: figure out command line overrides
+	extproc := &GenericExtProcServer{
+		name: name, 
+		processor: &processor, 
+		options: opts,
+	}
 	epb.RegisterExternalProcessorServer(s, extproc)
 	hpb.RegisterHealthServer(s, &HealthServer{})
 

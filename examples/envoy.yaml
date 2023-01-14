@@ -115,6 +115,22 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
                       grpc_service: 
                         envoy_grpc:
+                          cluster_name: dedup
+                        timeout: 30s
+                      failure_mode_allow: true
+                      message_timeout: 0.2s
+                      processing_mode: 
+                        request_header_mode: SEND
+                        response_header_mode: SEND
+                        request_body_mode: BUFFERED
+                        response_body_mode: BUFFERED
+                        request_trailer_mode: SKIP
+                        response_trailer_mode: SKIP
+                  - name: envoy.filters.http.ext_proc
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                      grpc_service: 
+                        envoy_grpc:
                           cluster_name: echo
                         timeout: 30s
                       failure_mode_allow: true
@@ -274,6 +290,25 @@ static_resources:
                 address: digest
                 port_value: 50051
             hostname: digest
+    type: LOGICAL_DNS
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+  - name: dedup
+    dns_lookup_family: V4_ONLY
+    lb_policy: LEAST_REQUEST
+    load_assignment:
+      cluster_name: dedup
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: dedup
+                port_value: 50051
+            hostname: dedup
     type: LOGICAL_DNS
     typed_extension_protocol_options:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:

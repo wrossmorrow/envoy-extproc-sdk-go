@@ -12,8 +12,8 @@ func (s noopRequestProcessor) GetName() string {
 
 func (s noopRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	opts := ep.NewOptions()
-	opts.LogStream = true
-	opts.LogPhases = true
+	// opts.LogStream = true
+	// opts.LogPhases = true
 	opts.UpdateExtProcHeader = true
 	opts.UpdateDurationHeader = true
 	return opts

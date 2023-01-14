@@ -15,7 +15,6 @@ func (s timerRequestProcessor) GetName() string {
 
 func (s timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	opts := ep.NewOptions()
-	opts.LogPhases = true
 	opts.UpdateExtProcHeader = true
 	opts.UpdateDurationHeader = true
 	return opts
