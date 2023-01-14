@@ -135,7 +135,12 @@ methods, requiring only names of headers to remove.
 
 ### Modifying Bodies
 
-TBD
+Two methods help modify bodies: 
+```go
+(rc *RequestContext) ReplaceBodyChunk(body []byte) error
+(rc *RequestContext) ClearBodyChunk() error
+```
+These are the two options currently available in `envoy` ExtProcs: replace a chunk and clear the entire chunk. Note that with buffered bodies the "chunks" should be the entire body. See the [masker](#masker) example discussed below. 
 
 ## Examples
 
@@ -223,6 +228,10 @@ The `digestRequestProcessor` defined in `examples/digest.go` computes a digest o
 ### Dedup
 
 The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of the request as above and uses that to reject requests when another request with the same digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query param to the proxied echo server to make one "long running" (`PUT`, `POST`, or `PATCH`) request in one terminal, and another similar request in another terminal and observe the second will have a 409 response. You can change the body in the second request and see it pass through. 
+
+### Masker
+
+The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBodyChunk`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data. 
 
 ### Echo
 
