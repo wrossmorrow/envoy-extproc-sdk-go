@@ -1,19 +1,20 @@
 package main
 
 import (
-	"log"
 	"encoding/json"
+	"log"
 
 	"github.com/nqd/flat"
+
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 var masked = map[string][]string{
-	"request": []string{
+	"request": {
 		"maskme",
 		"mask.me",
 	},
-	"response": []string{},
+	"response": {},
 }
 
 type maskerRequestProcessor struct{}
@@ -35,8 +36,8 @@ func isMaybeJSON(headers map[string][]string) bool {
 func maskJSONData(jsonPaths []string, body []byte) ([]byte, error) {
 
 	var (
-		data map[string]interface{}
-		err error
+		data map[string]any
+		err  error
 	)
 
 	err = json.Unmarshal(body, &data) // get JSON data

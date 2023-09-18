@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
 	"strings"
+	"time"
 )
 
 var (

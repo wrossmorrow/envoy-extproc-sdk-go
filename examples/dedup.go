@@ -76,7 +76,7 @@ func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error { 
+func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 
 	hasher, _ := getHasher(ctx)
 	hasher.Write([]byte(":"))

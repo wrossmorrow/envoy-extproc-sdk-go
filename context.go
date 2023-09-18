@@ -38,18 +38,17 @@ type RequestContext struct {
 	Started     time.Time
 	Duration    time.Duration
 	EndOfStream bool
-	data        map[string]interface{}
+	data        map[string]any
 	response    PhaseResponse
 }
 
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
-
 	rc.Started = time.Now()
 	rc.Duration = 0
 	rc.Headers = make(map[string][]string)
 
 	// for custom data between phases
-	rc.data = make(map[string]interface{})
+	rc.data = make(map[string]any)
 
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
@@ -58,29 +57,29 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 		switch h.Key {
 		case ":scheme":
 			rc.Scheme = h.Value
-			break
+
 		case ":authority":
 			rc.Authority = h.Value
-			break
+
 		case ":method":
 			rc.Method = h.Value
-			break
+
 		case ":path":
 			rc.Path = strings.Split(h.Value, "?")[0]
-			break
+
 		case "x-request-id":
 			rc.RequestId = h.Value
-			break
+
 		default:
 			rc.Headers[h.Key] = strings.Split(h.Value, ",")
-			break
+
 		}
 	}
 
 	return nil
 }
 
-func (rc *RequestContext) GetValue(name string) (interface{}, error) {
+func (rc *RequestContext) GetValue(name string) (any, error) {
 	val, exists := rc.data[name]
 	if exists {
 		return val, nil
@@ -88,7 +87,7 @@ func (rc *RequestContext) GetValue(name string) (interface{}, error) {
 	return nil, errors.New(name + " does not exist")
 }
 
-func (rc *RequestContext) SetValue(name string, val interface{}) error {
+func (rc *RequestContext) SetValue(name string, val any) error {
 	rc.data[name] = val
 	return nil
 }
@@ -130,7 +129,6 @@ func (rc *RequestContext) CancelRequest(status int32, headers map[string]string,
 }
 
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
-
 	// handle immediate responses
 	if rc.response.immediateResponse != nil {
 		switch phase {
@@ -141,10 +139,10 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					ImmediateResponse: rc.response.immediateResponse,
 				},
 			}, nil
+
 		// trailers phases don't have an ImmediateResponse option
 		// (only changes to headers permitted)
 		default:
-			break
 		}
 	}
 
@@ -170,6 +168,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				},
 			},
 		}, nil
+
 	case REQUEST_PHASE_REQUEST_BODY:
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_RequestBody{
@@ -178,6 +177,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				},
 			},
 		}, nil
+
 	case REQUEST_PHASE_REQUEST_TRAILERS:
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_RequestTrailers{
@@ -186,6 +186,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				},
 			},
 		}, nil
+
 	case REQUEST_PHASE_RESPONSE_HEADERS:
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_ResponseHeaders{
@@ -194,6 +195,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				},
 			},
 		}, nil
+
 	case REQUEST_PHASE_RESPONSE_BODY:
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_ResponseBody{
@@ -202,6 +204,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				},
 			},
 		}, nil
+
 	case REQUEST_PHASE_RESPONSE_TRAILERS:
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_ResponseTrailers{
@@ -210,6 +213,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				},
 			},
 		}, nil
+
 	default:
 		return nil, errors.New("unknown request phase")
 	}
@@ -222,7 +226,7 @@ func (rc *RequestContext) UpdateHeader(name string, value string, action string)
 		corev3.HeaderValueOption_HeaderAppendAction_value[action],
 	)
 	h := &corev3.HeaderValueOption{
-		Header: &corev3.HeaderValue{Key: name, Value: value},
+		Header:       &corev3.HeaderValue{Key: name, Value: value},
 		AppendAction: aa,
 	}
 	hm.SetHeaders = append(hm.SetHeaders, h)

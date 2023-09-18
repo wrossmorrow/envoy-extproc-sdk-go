@@ -3,19 +3,19 @@
 
 ## Overview
 
-[`envoy`](https://www.envoyproxy.io/), one of the most powerful and widely used reverse proxies, is able to query an [ExternalProcessor](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter) in it's filter chain. Such a processor is a gRPC service that streams messages back and forth to modify HTTP requests being processed by `envoy`. This functionality opens the door to quickly and robustly implemently customized functionality at the edge, instead of in targeted services. While powerful, implementing these services still requires dealing with complicated `envoy` specs, managing information sharing across request phases, and an understanding of gRPC, none of which are exactly straightforward. 
+[`envoy`](https://www.envoyproxy.io/), one of the most powerful and widely used reverse proxies, is able to query an [ExternalProcessor](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter) in it's filter chain. Such a processor is a gRPC service that streams messages back and forth to modify HTTP requests being processed by `envoy`. This functionality opens the door to quickly and robustly implemently customized functionality at the edge, instead of in targeted services. While powerful, implementing these services still requires dealing with complicated `envoy` specs, managing information sharing across request phases, and an understanding of gRPC, none of which are exactly straightforward.
 
 **The purpose of this SDK is to make development of ExternalProcessors (more) easy**. This SDK _certainly_ won't supply the most _performant_ edge functions. Much better performance will come from eschewing the ease-of-use functionality here by using a [WASM plugin](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/wasm/v3/wasm.proto) or registered [custom filter binary](https://github.com/envoyproxy/envoy-filter-example). Optimal performance isn't necessarily our goal; usability, maintainability, and low time-to-functionality is, and those aspects can often be more important than minimal request latency.
 
 We attempt to achieve this ease largely by masking some of the details behind the datastructures `envoy` uses, which are effective but verbose and idiosyncratic. Each request generates a bidirectional gRPC stream (with at most 6 messages) and sends, in turn, data concerning request headers, request body, request trailers, response headers, response body, and response trailers (if `envoy` is configured to send all phases). The idea here is to supply functions for each phase that operate on a context and more generically typed data suitable for each phase. (See details below.)
 
-Several examples are provided here in the [examples](#examples), which can be reviewed to examine usage patterns. 
+Several examples are provided here in the [examples](#examples), which can be reviewed to examine usage patterns.
 
 ## Usage
 
 ### TL;DR
 
-Implement the `extproc.RequestProcessor` interface, and pass an instance to the `extproc.Serve` function. 
+Implement the `extproc.RequestProcessor` interface, and pass an instance to the `extproc.Serve` function.
 
 ### Details
 
@@ -26,7 +26,7 @@ type GenericExtProcServer struct {
     processor requestProcessor
 }
 ```
-an interface 
+an interface
 ```go
 type RequestProcessor interface {
     GetName() string
@@ -51,7 +51,7 @@ type RequestContext struct {
     Started     time.Time
     Duration    time.Duration
     EndOfStream bool
-    data        map[string]interface{}
+    data        map[string]any
     response    PhaseResponse
 }
 ```
@@ -85,7 +85,7 @@ func main() {
 
 }
 ```
-for `myRequestProcessor` implementing `RequestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important. 
+for `myRequestProcessor` implementing `RequestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
 
 ### Context Data
 
@@ -99,11 +99,11 @@ The `RequestContext` is initialized with request data when request headers are r
 * an accumulator `Duration` _for the time spent in external processing_
 * a flag `EndOfStream` from gRPC messages for header and body phases
 
-This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `interface{}`, so to use them you must re-type the data upoin retrieval. See the [data](#data) or [digest](#digest) examples. 
+This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `any`, so to use them you must re-type the data upoin retrieval. See the [data](#data) or [digest](#digest) examples.
 
 ### Forming Responses
 
-We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
+We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface.
 
 In particular, the methods
 ```go
@@ -123,7 +123,7 @@ You can add headers to a response with the convenience methods
 (rc *RequestContext) AddHeaders(headers map[string]string) error
 (rc *RequestContext) OverwriteHeaders(headers map[string]string) error
 ```
-where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call. 
+where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call.
 
 Headers can be removed with the
 ```go
@@ -135,26 +135,26 @@ methods, requiring only names of headers to remove.
 
 ### Modifying Bodies
 
-Two methods help modify bodies: 
+Two methods help modify bodies:
 ```go
 (rc *RequestContext) ReplaceBodyChunk(body []byte) error
 (rc *RequestContext) ClearBodyChunk() error
 ```
-These are the two options currently available in `envoy` ExtProcs: replace a chunk and clear the entire chunk. Note that with buffered bodies the "chunks" should be the entire body. See the [masker](#masker) example discussed below. 
+These are the two options currently available in `envoy` ExtProcs: replace a chunk and clear the entire chunk. Note that with buffered bodies the "chunks" should be the entire body. See the [masker](#masker) example discussed below.
 
 ## Examples
 
-You can run all the examples with 
+You can run all the examples with
 ```shell
 cd examples && just up
 ```
-or if you don't use [`just`](https://github.com/casey/just), 
+or if you don't use [`just`](https://github.com/casey/just),
 ```shell
 cd examples && docker-compose build && docker-compose up
 ```
-The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `examples/_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
+The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `examples/_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below.
 
-Here is some sample output with the compose setup running: 
+Here is some sample output with the compose setup running:
 ```shell
 $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' -s -vvv | jq .
 *   Trying ::1...
@@ -166,7 +166,7 @@ $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' 
 > Accept: */*
 > Content-type: text/plain
 > Content-Length: 5
-> 
+>
 } [5 bytes data]
 * upload completely sent off: 5 out of 5 bytes
 < HTTP/1.1 200 OK
@@ -183,7 +183,7 @@ $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' 
 < x-extproc-duration-ns: 3408
 < server: envoy
 < transfer-encoding: chunked
-< 
+<
 { [399 bytes data]
 * Connection #0 to host localhost left intact
 * Closing connection 0
@@ -207,32 +207,32 @@ $ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' 
 
 ### No-op
 
-The `noopRequestProcessor` defined in `examples/noop.go` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-names` are added to the response to the client. These headers are not injected from the processor, but rather the SDK. 
+The `noopRequestProcessor` defined in `examples/noop.go` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-names` are added to the response to the client. These headers are not injected from the processor, but rather the SDK.
 
 ### Trivial
 
-The `trivialRequestProcessor` defined in `examples/trivial.go` does very little: adds a header to the request sent to an upstream target and a similar header in the response to the client that simply declare the request passed through the processor. 
+The `trivialRequestProcessor` defined in `examples/trivial.go` does very little: adds a header to the request sent to an upstream target and a similar header in the response to the client that simply declare the request passed through the processor.
 
 ### Timer
 
-The `timerRequestProcessor` defined in `examples/timer.go` adds timing headers: one to the request sent to the upstream with the Unix UTC (ns) time when the request started processing, and similar started, finished, and duration headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
+The `timerRequestProcessor` defined in `examples/timer.go` adds timing headers: one to the request sent to the upstream with the Unix UTC (ns) time when the request started processing, and similar started, finished, and duration headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data.
 
 ### Data
 
-The `dataRequestProcessor` defined in `examples/data.go` stores custom data on the request headers phase and adds that data as a header to the response for the downstream client. 
+The `dataRequestProcessor` defined in `examples/data.go` stores custom data on the request headers phase and adds that data as a header to the response for the downstream client.
 
 ### Digest
 
-The `digestRequestProcessor` defined in `examples/digest.go` computes a digest of the request, using `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash). 
+The `digestRequestProcessor` defined in `examples/digest.go` computes a digest of the request, using `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash).
 
 ### Dedup
 
-The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of the request as above and uses that to reject requests when another request with the same digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query param to the proxied echo server to make one "long running" (`PUT`, `POST`, or `PATCH`) request in one terminal, and another similar request in another terminal and observe the second will have a 409 response. You can change the body in the second request and see it pass through. 
+The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of the request as above and uses that to reject requests when another request with the same digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query param to the proxied echo server to make one "long running" (`PUT`, `POST`, or `PATCH`) request in one terminal, and another similar request in another terminal and observe the second will have a 409 response. You can change the body in the second request and see it pass through.
 
 ### Masker
 
-The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBodyChunk`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data. 
+The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBodyChunk`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data.
 
 ### Echo
 
-The `echoRequestProcessor` defined in `examples/echo.go` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target. 
+The `echoRequestProcessor` defined in `examples/echo.go` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target.

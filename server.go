@@ -16,7 +16,6 @@ import (
 )
 
 func Serve(port int, processor RequestProcessor) {
-
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -28,16 +27,16 @@ func Serve(port int, processor RequestProcessor) {
 	name := processor.GetName()
 	opts := processor.GetOptions() // TODO: figure out command line overrides
 	extproc := &GenericExtProcServer{
-		name: name, 
-		processor: &processor, 
-		options: opts,
+		name:      name,
+		processor: &processor,
+		options:   opts,
 	}
 	epb.RegisterExternalProcessorServer(s, extproc)
 	hpb.RegisterHealthServer(s, &HealthServer{})
 
 	log.Printf("Starting ExtProc(%s) on port %d\n", name, port)
 
-	var gracefulStop = make(chan os.Signal)
+	var gracefulStop = make(chan os.Signal, 1)
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
 	go func() {

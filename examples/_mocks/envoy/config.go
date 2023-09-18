@@ -1,8 +1,8 @@
 package main
 
 import (
-	"log"
 	"io/ioutil"
+	"log"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,7 +12,7 @@ type Config struct {
 }
 
 type ConfigItem struct {
-	Request HttpRequest `yaml:"request"`
+	Request  HttpRequest  `yaml:"request"`
 	Response HttpResponse `yaml:"response"`
 }
 
