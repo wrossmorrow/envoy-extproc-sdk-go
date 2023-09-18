@@ -59,7 +59,6 @@ func main() {
 	flag.Parse()
 
 	var opts []grpc.DialOption
-
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	conn, err := grpc.Dial(*serverAddr, opts...)

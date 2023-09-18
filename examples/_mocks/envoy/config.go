@@ -1,8 +1,8 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,9 +17,7 @@ type ConfigItem struct {
 }
 
 func config() Config {
-
-	yfile, err := ioutil.ReadFile("requests.yaml")
-
+	yfile, err := os.ReadFile("requests.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -37,5 +35,4 @@ func config() Config {
 	// }
 
 	return C
-
 }

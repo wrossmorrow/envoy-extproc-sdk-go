@@ -72,7 +72,6 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 
 		default:
 			rc.Headers[h.Key] = strings.Split(h.Value, ",")
-
 		}
 	}
 

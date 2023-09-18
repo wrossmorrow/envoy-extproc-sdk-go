@@ -111,7 +111,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
 
 		// initialize request context (requires _not_ skipping request headers)
-		err = initReqCtx(rc, h.Headers)
+		_ = initReqCtx(rc, h.Headers)
 		rc.EndOfStream = h.EndOfStream
 
 		ps = time.Now()

@@ -2,32 +2,32 @@ requests:
   - request:
       method: GET
       path: /some/path
-      headers: 
+      headers:
         content-type: text/plain
     response:
       status: 200
-      headers: 
+      headers:
         Content-type: text/plain
       body: hello
   - request:
       method: PUT
       path: /some/resource
-      headers: 
+      headers:
         content-type: application/json
       body: "{\"data\": \"here\"}"
     response:
       status: 201
-      headers: 
+      headers:
         Content-type: application/json
       body: "{\"id\": 0, \"data\": \"here\"}"
   - request:
       method: PUT
       path: /some/resource
-      headers: 
+      headers:
         content-type: application/json
       body: "{\"maskme\": \"here\"}"
     response:
       status: 201
-      headers: 
+      headers:
         content-type: application/json
       body: "{\"id\": 0, \"data\": \"here\"}"

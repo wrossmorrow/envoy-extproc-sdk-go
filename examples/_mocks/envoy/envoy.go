@@ -27,7 +27,7 @@ type envoyStream struct {
 }
 
 func newEnvoyStream(req HttpRequest, resp HttpResponse) *envoyStream {
-	es := &envoyStream{phases: []extprocv3.ProcessingRequest{}}
+	es := &envoyStream{}
 	es.phases = append(es.phases, req.getEnvoyPhases()...)
 	es.phases = append(es.phases, resp.getEnvoyPhases()...)
 	return es
@@ -59,7 +59,6 @@ func (r *HttpResponse) getEnvoyPhases() []extprocv3.ProcessingRequest {
 }
 
 func newRequestHeadersPhase(method string, path string, headers map[string]string) extprocv3.ProcessingRequest {
-
 	hm := &corev3.HeaderMap{}
 	hm.Headers = append(hm.Headers, &corev3.HeaderValue{Key: ":scheme", Value: "http"})
 	hm.Headers = append(hm.Headers, &corev3.HeaderValue{Key: ":authority", Value: *serverAddr})

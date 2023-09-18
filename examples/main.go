@@ -29,8 +29,10 @@ func main() {
 
 	if len(args) == 0 {
 		log.Fatal("Passing a processor is required.")
+
 	} else if len(args) > 1 {
 		log.Fatal("Only a single processor can be served at once.")
+
 	} else {
 		_, exists := processors[args[0]]
 		if !exists {

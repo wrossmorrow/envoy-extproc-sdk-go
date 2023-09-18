@@ -21,7 +21,6 @@ func (s timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
-
 	ctx.OverwriteHeader("x-extproc-started-ns", strconv.FormatInt(ctx.Started.UnixNano(), 10))
 	return ctx.ContinueRequest()
 }
@@ -35,7 +34,6 @@ func (s timerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, tr
 }
 
 func (s timerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
-
 	finished := time.Now()
 	duration := time.Since(ctx.Started)
 
@@ -47,7 +45,6 @@ func (s timerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, he
 }
 
 func (s timerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
-
 	finished := time.Now()
 	duration := time.Since(ctx.Started)
 
