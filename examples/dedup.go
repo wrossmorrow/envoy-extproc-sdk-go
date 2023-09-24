@@ -54,7 +54,6 @@ func (s dedupRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
-
 	hasher := sha256.New()
 	ctx.SetValue("hasher", hasher)
 
@@ -67,6 +66,7 @@ func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 		if dedupable(ctx) {
 			if isRequestCached(digest) {
 				return ctx.CancelRequest(409, make(map[string]string), "")
+
 			} else {
 				cacheRequest(ctx, digest)
 			}
@@ -76,7 +76,7 @@ func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error { 
+func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 
 	hasher, _ := getHasher(ctx)
 	hasher.Write([]byte(":"))
@@ -88,6 +88,7 @@ func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body [
 		if dedupable(ctx) {
 			if isRequestCached(digest) {
 				return ctx.CancelRequest(409, make(map[string]string), "")
+
 			} else {
 				cacheRequest(ctx, digest)
 			}

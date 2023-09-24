@@ -2,7 +2,7 @@ package main
 
 import (
 	"log"
-	"io/ioutil"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,14 +12,12 @@ type Config struct {
 }
 
 type ConfigItem struct {
-	Request HttpRequest `yaml:"request"`
+	Request  HttpRequest  `yaml:"request"`
 	Response HttpResponse `yaml:"response"`
 }
 
 func config() Config {
-
-	yfile, err := ioutil.ReadFile("requests.yaml")
-
+	yfile, err := os.ReadFile("requests.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -37,5 +35,4 @@ func config() Config {
 	// }
 
 	return C
-
 }

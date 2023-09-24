@@ -38,7 +38,6 @@ func (s digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
-
 	hasher := sha256.New()
 	ctx.SetValue("hasher", hasher)
 
@@ -57,6 +56,7 @@ func (s digestRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body 
 	hasher, _ := getHasher(ctx)
 	hasher.Write([]byte(":"))
 	hasher.Write(body)
+
 	if ctx.EndOfStream {
 		digest := hex.EncodeToString(hasher.Sum(nil))
 		ctx.SetValue("digest", digest)

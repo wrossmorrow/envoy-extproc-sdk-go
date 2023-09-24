@@ -35,7 +35,6 @@ func (s echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {
 }
 
 func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
-
 	match, _ := regexp.MatchString("/echo/.*", ctx.Path)
 	if !match {
 		return ctx.ContinueRequest()
