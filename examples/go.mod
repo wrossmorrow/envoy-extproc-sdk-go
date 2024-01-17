@@ -1,4 +1,4 @@
-module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/timer
+module github.com/wrossmorrow/envoy-extproc-sdk-go/examples
 
 go 1.21
 
