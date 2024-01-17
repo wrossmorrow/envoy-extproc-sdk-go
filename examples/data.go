@@ -15,10 +15,7 @@ func (s *dataRequestProcessor) GetName() string {
 }
 
 func (s *dataRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewDefaultOptions()
-	opts.UpdateExtProcHeader = true
-	opts.UpdateDurationHeader = true
-	return opts
+	return s.opts
 }
 
 func (s *dataRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {

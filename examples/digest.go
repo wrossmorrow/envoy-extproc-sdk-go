@@ -33,10 +33,7 @@ func (s *digestRequestProcessor) GetName() string {
 }
 
 func (s *digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewDefaultOptions()
-	opts.UpdateExtProcHeader = true
-	opts.UpdateDurationHeader = true
-	return opts
+	return s.opts
 }
 
 func (s *digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {

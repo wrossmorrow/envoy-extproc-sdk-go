@@ -13,10 +13,7 @@ func (s *trivialRequestProcessor) GetName() string {
 }
 
 func (s *trivialRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewDefaultOptions()
-	opts.UpdateExtProcHeader = true
-	opts.UpdateDurationHeader = true
-	return opts
+	return s.opts
 }
 
 func (s *trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
