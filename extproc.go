@@ -108,7 +108,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		if s.options.LogPhases {
 			log.Printf("Processing Request Headers: %v \n", v)
 		}
-		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
+		h := v.RequestHeaders
 
 		// initialize request context (requires _not_ skipping request headers)
 		_ = initReqCtx(rc, h.Headers)
@@ -135,7 +135,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		if s.options.LogPhases {
 			log.Printf("Processing Request Body: %v \n", v)
 		}
-		b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
+		b := v.RequestBody
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
@@ -147,7 +147,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		if s.options.LogPhases {
 			log.Printf("Processing Request Trailers: %v \n", v)
 		}
-		ts := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
+		ts := v.RequestTrailers
 
 		trailers := make(map[string][]string)
 		for _, h := range ts.Trailers.Headers {
@@ -163,7 +163,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		if s.options.LogPhases {
 			log.Printf("Processing Response Headers: %v \n", v)
 		}
-		hs := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
+		hs := v.ResponseHeaders
 		rc.EndOfStream = hs.EndOfStream
 
 		// _response_ headers
@@ -188,7 +188,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		if s.options.LogPhases {
 			log.Printf("Processing Response Body: %v \n", v)
 		}
-		b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
+		b := v.ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
@@ -204,7 +204,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 		if s.options.LogPhases {
 			log.Printf("Processing Response Trailers: %v \n", v)
 		}
-		ts := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
+		ts := v.ResponseTrailers
 
 		trailers := make(map[string][]string)
 		for _, h := range ts.Trailers.Headers {
