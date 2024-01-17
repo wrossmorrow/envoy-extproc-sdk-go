@@ -26,7 +26,7 @@ var processors = map[string]processor{
 	"echo":    &echoRequestProcessor{},
 }
 
-func parsedArgs(args []string) (port *int, opts *ep.ProcessingOptions, nonFlagArgs []string) {
+func parseArgs(args []string) (port *int, opts *ep.ProcessingOptions, nonFlagArgs []string) {
 	rootCmd := flag.NewFlagSet("root", flag.ExitOnError)
 	port = rootCmd.Int("port", 50051, "the gRPC port.")
 
@@ -56,7 +56,7 @@ func main() {
 		log.Fatalf("Processor \"%s\" not defined.", cmd)
 	}
 
-	port, opts, nonFlagArgs := parsedArgs(os.Args[2:])
+	port, opts, nonFlagArgs := parseArgs(os.Args[2:])
 	if err := proc.Init(opts, nonFlagArgs); err != nil {
 		log.Fatalf("Initialize the processor is failed: %w.", err)
 	}
