@@ -8,7 +8,9 @@ import (
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
-type digestRequestProcessor struct{}
+type digestRequestProcessor struct {
+	opts *ep.ProcessingOptions
+}
 
 func getHasher(ctx *ep.RequestContext) (hash.Hash, error) {
 	val, err := ctx.GetValue("hasher")
@@ -26,18 +28,18 @@ func getDigest(ctx *ep.RequestContext) (string, error) {
 	return val.(string), nil
 }
 
-func (s digestRequestProcessor) GetName() string {
+func (s *digestRequestProcessor) GetName() string {
 	return "digest"
 }
 
-func (s digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewOptions()
+func (s *digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	opts := ep.NewDefaultOptions()
 	opts.UpdateExtProcHeader = true
 	opts.UpdateDurationHeader = true
 	return opts
 }
 
-func (s digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	hasher := sha256.New()
 	ctx.SetValue("hasher", hasher)
 
@@ -52,7 +54,7 @@ func (s digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, he
 	return ctx.ContinueRequest()
 }
 
-func (s digestRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
+func (s *digestRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 	hasher, _ := getHasher(ctx)
 	hasher.Write([]byte(":"))
 	hasher.Write(body)
@@ -65,11 +67,11 @@ func (s digestRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body 
 	return ctx.ContinueRequest()
 }
 
-func (s digestRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s digestRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	if ctx.EndOfStream {
 		digest, _ := getDigest(ctx)
 		ctx.AddHeader("x-extproc-request-digest", digest)
@@ -77,7 +79,7 @@ func (s digestRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, h
 	return ctx.ContinueRequest()
 }
 
-func (s digestRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
+func (s *digestRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
 	if ctx.EndOfStream {
 		digest, _ := getDigest(ctx)
 		ctx.AddHeader("x-extproc-request-digest", digest)
@@ -85,6 +87,13 @@ func (s digestRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 	return ctx.ContinueRequest()
 }
 
-func (s digestRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
+
+func (s *digestRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
+	s.opts = opts
+	return nil
+}
+
+func (s *digestRequestProcessor) Finish() {}

@@ -1,6 +1,8 @@
 module github.com/wrossmorrow/envoy-extproc-sdk-go/examples/timer
 
-go 1.19
+go 1.21
+
+toolchain go1.21.5
 
 require (
 	github.com/google/uuid v1.3.1

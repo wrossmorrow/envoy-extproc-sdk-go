@@ -27,7 +27,7 @@ type RequestProcessor interface {
 
 type GenericExtProcServer struct {
 	name      string
-	processor *RequestProcessor
+	processor RequestProcessor
 	options   *ProcessingOptions
 }
 
@@ -37,7 +37,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	}
 
 	if s.options == nil {
-		s.options = NewOptions()
+		s.options = NewDefaultOptions()
 	}
 
 	if s.options.LogStream {
@@ -72,7 +72,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		// RequestHeaders phase processing.
 		_ = rc.ResetPhase()
 
-		resp, err := s.processPhase(req, *s.processor, rc)
+		resp, err := s.processPhase(req, s.processor, rc)
 		if err != nil {
 			log.Printf("Phase processing error %v", err)
 		} else if resp == nil {

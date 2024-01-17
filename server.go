@@ -28,7 +28,7 @@ func Serve(port int, processor RequestProcessor) {
 	opts := processor.GetOptions() // TODO: figure out command line overrides
 	extproc := &GenericExtProcServer{
 		name:      name,
-		processor: &processor,
+		processor: processor,
 		options:   opts,
 	}
 	epb.RegisterExternalProcessorServer(s, extproc)

@@ -7,6 +7,6 @@ type ProcessingOptions struct {
 	UpdateDurationHeader bool
 }
 
-func NewOptions() *ProcessingOptions {
+func NewDefaultOptions() *ProcessingOptions {
 	return &ProcessingOptions{}
 }

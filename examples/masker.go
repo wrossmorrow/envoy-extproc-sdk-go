@@ -17,7 +17,9 @@ var masked = map[string][]string{
 	"response": {},
 }
 
-type maskerRequestProcessor struct{}
+type maskerRequestProcessor struct {
+	opts *ep.ProcessingOptions
+}
 
 func isMaybeJSON(headers map[string][]string) bool {
 	types, exists := headers["content-type"]
@@ -71,24 +73,19 @@ func maskJSONData(jsonPaths []string, body []byte) ([]byte, error) {
 
 }
 
-func (s maskerRequestProcessor) GetName() string {
+func (s *maskerRequestProcessor) GetName() string {
 	return "masker"
 }
 
-func (s maskerRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewOptions()
-	opts.LogStream = true
-	opts.LogPhases = true
-	opts.UpdateExtProcHeader = true
-	opts.UpdateDurationHeader = true
-	return opts
+func (s *maskerRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return s.opts
 }
 
-func (s maskerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
+func (s *maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 	// unmarshal JSON body (if content-type: application/json)
 	// examine for matching paths
 	// "mask" data at all matching paths
@@ -108,16 +105,16 @@ func (s maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body 
 	return ctx.ContinueRequest()
 }
 
-func (s maskerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s maskerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	ctx.SetValue("responseHeaders", headers)
 	return ctx.ContinueRequest()
 }
 
-func (s maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
+func (s *maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
 	// unmarshal JSON body (if content-type: application/json)
 	// examine for matching paths
 	// "mask" data at all matching paths
@@ -136,6 +133,13 @@ func (s maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 	return ctx.ContinueRequest()
 }
 
-func (s maskerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
+
+func (s *maskerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
+	s.opts = opts
+	return nil
+}
+
+func (s *maskerRequestProcessor) Finish() {}

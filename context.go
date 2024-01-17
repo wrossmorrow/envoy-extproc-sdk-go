@@ -3,6 +3,7 @@ package extproc
 import (
 	"errors"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -273,7 +274,7 @@ func (rc *RequestContext) OverwriteHeaders(headers map[string]string) error {
 
 func (rc *RequestContext) RemoveHeader(name string) error {
 	hm := rc.response.headerMutation
-	if !StrInSlice(hm.RemoveHeaders, name) {
+	if !slices.Contains(hm.RemoveHeaders, name) {
 		hm.RemoveHeaders = append(hm.RemoveHeaders, name)
 	}
 	return nil
@@ -282,7 +283,7 @@ func (rc *RequestContext) RemoveHeader(name string) error {
 func (rc *RequestContext) RemoveHeaders(headers []string) error {
 	hm := rc.response.headerMutation
 	for _, h := range headers {
-		if !StrInSlice(hm.RemoveHeaders, h) {
+		if !slices.Contains(hm.RemoveHeaders, h) {
 			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
 		}
 	}
@@ -292,7 +293,7 @@ func (rc *RequestContext) RemoveHeaders(headers []string) error {
 func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	hm := rc.response.headerMutation
 	for _, h := range headers {
-		if !StrInSlice(hm.RemoveHeaders, h) {
+		if !slices.Contains(hm.RemoveHeaders, h) {
 			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
 		}
 	}

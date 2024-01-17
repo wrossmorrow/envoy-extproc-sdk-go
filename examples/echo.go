@@ -7,7 +7,9 @@ import (
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
-type echoRequestProcessor struct{}
+type echoRequestProcessor struct {
+	opts *ep.ProcessingOptions
+}
 
 func joinHeaders(mvhs map[string][]string) map[string]string {
 	hs := make(map[string]string)
@@ -17,24 +19,21 @@ func joinHeaders(mvhs map[string][]string) map[string]string {
 	return hs
 }
 
-func (s echoRequestProcessor) GetName() string {
+func (s *echoRequestProcessor) GetName() string {
 	return "echo"
 }
 
-func (s echoRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewOptions()
-	opts.UpdateExtProcHeader = true
-	opts.UpdateDurationHeader = true
-	return opts
+func (s *echoRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return s.opts
 }
 
-func (s echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {
+func (s *echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {
 	echoPathRx, _ := regexp.Compile("/echo/.*")
 	ctx.SetValue("echoPath", echoPathRx)
 	return nil
 }
 
-func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	match, _ := regexp.MatchString("/echo/.*", ctx.Path)
 	if !match {
 		return ctx.ContinueRequest()
@@ -55,7 +54,7 @@ func (s echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, head
 	// return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
+func (s *echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 	match, _ := regexp.MatchString("/echo/.*", ctx.Path)
 	if !match {
 		return ctx.ContinueRequest()
@@ -63,18 +62,25 @@ func (s echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []
 	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body))
 }
 
-func (s echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
+func (s *echoRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
+
+func (s *echoRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
+	s.opts = opts
+	return nil
+}
+
+func (s *echoRequestProcessor) Finish() {}

@@ -9,7 +9,9 @@ import (
 
 var cache map[string]bool
 
-type dedupRequestProcessor struct{}
+type dedupRequestProcessor struct {
+	opts *ep.ProcessingOptions
+}
 
 func dedupable(ctx *ep.RequestContext) bool {
 	switch ctx.Method {
@@ -42,18 +44,15 @@ func isRequestCached(digest string) bool {
 	return cached
 }
 
-func (s dedupRequestProcessor) GetName() string {
+func (s *dedupRequestProcessor) GetName() string {
 	return "dedup"
 }
 
-func (s dedupRequestProcessor) GetOptions() *ep.ProcessingOptions {
-	opts := ep.NewOptions()
-	opts.UpdateExtProcHeader = true
-	opts.UpdateDurationHeader = true
-	return opts
+func (s *dedupRequestProcessor) GetOptions() *ep.ProcessingOptions {
+	return s.opts
 }
 
-func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	hasher := sha256.New()
 	ctx.SetValue("hasher", hasher)
 
@@ -76,7 +75,7 @@ func (s dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
+func (s *dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 
 	hasher, _ := getHasher(ctx)
 	hasher.Write([]byte(":"))
@@ -97,11 +96,11 @@ func (s dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body [
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
 	digest, _ := getDigest(ctx)
 	uncacheRequest(digest)
 	if ctx.EndOfStream {
@@ -110,7 +109,7 @@ func (s dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, he
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
+func (s *dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
 	digest, _ := getDigest(ctx)
 	uncacheRequest(digest)
 	if ctx.EndOfStream {
@@ -119,6 +118,13 @@ func (s dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body 
 	return ctx.ContinueRequest()
 }
 
-func (s dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
 	return ctx.ContinueRequest()
 }
+
+func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, extnonFlagArgsraArgs []string) error {
+	s.opts = opts
+	return nil
+}
+
+func (s *dedupRequestProcessor) Finish() {}
