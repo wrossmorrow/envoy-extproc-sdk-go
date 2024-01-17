@@ -2,8 +2,6 @@ module github.com/wrossmorrow/envoy-extproc-sdk-go/examples
 
 go 1.21
 
-toolchain go1.21.5
-
 require (
 	github.com/google/uuid v1.3.1
 	github.com/nqd/flat v0.2.0
