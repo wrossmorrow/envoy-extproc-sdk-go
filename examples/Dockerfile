@@ -1,4 +1,4 @@
-FROM golang:1.19.2-bullseye
+FROM golang:1.21.6-bullseye
 
 SHELL ["/bin/bash", "-c"]
 
