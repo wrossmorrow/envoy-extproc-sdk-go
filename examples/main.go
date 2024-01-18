@@ -58,7 +58,7 @@ func main() {
 
 	port, opts, nonFlagArgs := parseArgs(os.Args[2:])
 	if err := proc.Init(opts, nonFlagArgs); err != nil {
-		log.Fatalf("Initialize the processor is failed: %w.", err)
+		log.Fatalf("Initialize the processor is failed: %v.", err.Error())
 	}
 	defer proc.Finish()
 
