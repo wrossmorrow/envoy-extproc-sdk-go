@@ -36,7 +36,7 @@ func (s *digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	return s.opts
 }
 
-func (s *digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
 	hasher := sha256.New()
 	ctx.SetValue("hasher", hasher)
 
@@ -64,11 +64,11 @@ func (s *digestRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body
 	return ctx.ContinueRequest()
 }
 
-func (s *digestRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s *digestRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string, rawValues map[string][]byte) error {
 	if ctx.EndOfStream {
 		digest, _ := getDigest(ctx)
 		ctx.AddHeader("x-extproc-request-digest", digest)
@@ -84,7 +84,7 @@ func (s *digestRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 	return ctx.ContinueRequest()
 }
 
-func (s *digestRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *digestRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 

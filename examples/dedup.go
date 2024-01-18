@@ -52,7 +52,7 @@ func (s *dedupRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	return s.opts
 }
 
-func (s *dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
 	hasher := sha256.New()
 	ctx.SetValue("hasher", hasher)
 
@@ -96,11 +96,11 @@ func (s *dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body 
 	return ctx.ContinueRequest()
 }
 
-func (s *dedupRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s *dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string, rawValues map[string][]byte) error {
 	digest, _ := getDigest(ctx)
 	uncacheRequest(digest)
 	if ctx.EndOfStream {
@@ -118,7 +118,7 @@ func (s *dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 	return ctx.ContinueRequest()
 }
 
-func (s *dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 

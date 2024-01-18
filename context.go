@@ -2,6 +2,7 @@ package extproc
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -30,12 +31,17 @@ type PhaseResponse struct {
 }
 
 type RequestContext struct {
-	Scheme      string
-	Authority   string
-	Method      string
-	Path        string
-	RequestId   string
-	Headers     map[string][]string
+	Scheme    string
+	Authority string
+	Method    string
+	Path      string
+	RequestId string
+
+	Headers map[string][]string
+
+	// Header value is encoded as bytes which can support non-utf8 characters.
+	HeaderRawValues map[string][]byte
+
 	Started     time.Time
 	Duration    time.Duration
 	EndOfStream bool
@@ -43,10 +49,33 @@ type RequestContext struct {
 	response    PhaseResponse
 }
 
+func genHeaders(headerMap *corev3.HeaderMap) (headers map[string][]string, rawBytes map[string][]byte, err error) {
+	headers = map[string][]string{}
+	rawBytes = map[string][]byte{}
+
+	for _, h := range headerMap.Headers {
+		if len(h.Value) > 0 && len(h.RawValue) > 0 {
+			err = fmt.Errorf("only one of 'value' or 'raw_value' can be set")
+			return
+		}
+
+		if len(h.Value) > 0 {
+			headers[h.Key] = strings.Split(h.Value, ",")
+		} else {
+			rawBytes[h.Key] = h.RawValue
+		}
+	}
+	return
+}
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
+	var err error
+	rc.Headers, rc.HeaderRawValues, err = genHeaders(headers)
+	if err != nil {
+		return err
+	}
+
 	rc.Started = time.Now()
 	rc.Duration = 0
-	rc.Headers = make(map[string][]string)
 
 	// for custom data between phases
 	rc.data = make(map[string]any)
@@ -72,7 +101,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 			rc.RequestId = h.Value
 
 		default:
-			rc.Headers[h.Key] = strings.Split(h.Value, ",")
+			//placeholder
 		}
 	}
 

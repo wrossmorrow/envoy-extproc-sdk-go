@@ -16,7 +16,7 @@ func (s *trivialRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	return s.opts
 }
 
-func (s *trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
 	ctx.AddHeader("x-extproc-request", "seen")
 	return ctx.ContinueRequest() // returns an error if response malformed
 }
@@ -25,11 +25,11 @@ func (s *trivialRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, bod
 	return ctx.ContinueRequest()
 }
 
-func (s *trivialRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *trivialRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s *trivialRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *trivialRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
@@ -38,7 +38,7 @@ func (s *trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bo
 	return ctx.ContinueRequest() // returns an error if response malformed
 }
 
-func (s *trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 

@@ -33,7 +33,7 @@ func (s *echoRequestProcessor) PreprocessContext(ctx *ep.RequestContext) error {
 	return nil
 }
 
-func (s *echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
 	match, _ := regexp.MatchString("/echo/.*", ctx.Path)
 	if !match {
 		return ctx.ContinueRequest()
@@ -62,11 +62,11 @@ func (s *echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body [
 	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body))
 }
 
-func (s *echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s *echoRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
@@ -74,7 +74,7 @@ func (s *echoRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body 
 	return ctx.ContinueRequest()
 }
 
-func (s *echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 

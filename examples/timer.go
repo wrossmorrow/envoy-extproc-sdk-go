@@ -19,7 +19,7 @@ func (s *timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	return s.opts
 }
 
-func (s *timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
 	ctx.OverwriteHeader("x-extproc-started-ns", strconv.FormatInt(ctx.Started.UnixNano(), 10))
 	return ctx.ContinueRequest()
 }
@@ -28,11 +28,11 @@ func (s *timerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body 
 	return ctx.ContinueRequest()
 }
 
-func (s *timerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *timerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s *timerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *timerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string, rawValues map[string][]byte) error {
 	finished := time.Now()
 	duration := time.Since(ctx.Started)
 
@@ -54,7 +54,7 @@ func (s *timerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 	return ctx.ContinueRequest()
 }
 
-func (s *timerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *timerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 

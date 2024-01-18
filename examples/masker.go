@@ -81,7 +81,7 @@ func (s *maskerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	return s.opts
 }
 
-func (s *maskerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
@@ -105,11 +105,11 @@ func (s *maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body
 	return ctx.ContinueRequest()
 }
 
-func (s *maskerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
-func (s *maskerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers map[string][]string, rawValues map[string][]byte) error {
 	ctx.SetValue("responseHeaders", headers)
 	return ctx.ContinueRequest()
 }
@@ -133,7 +133,7 @@ func (s *maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 	return ctx.ContinueRequest()
 }
 
-func (s *maskerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string) error {
+func (s *maskerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers map[string][]string, rawValues map[string][]byte) error {
 	return ctx.ContinueRequest()
 }
 
