@@ -17,10 +17,10 @@ type RequestProcessor interface {
 	GetName() string
 	GetOptions() *ProcessingOptions
 
-	ProcessRequestHeaders(ctx *RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error
-	ProcessRequestTrailers(ctx *RequestContext, trailers map[string][]string, trailerRawValues map[string][]byte) error
-	ProcessResponseHeaders(ctx *RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error
-	ProcessResponseTrailers(ctx *RequestContext, trailers map[string][]string, trailerRawValues map[string][]byte) error
+	ProcessRequestHeaders(ctx *RequestContext, headers AllHeaders) error
+	ProcessRequestTrailers(ctx *RequestContext, trailers AllHeaders) error
+	ProcessResponseHeaders(ctx *RequestContext, headers AllHeaders) error
+	ProcessResponseTrailers(ctx *RequestContext, trailers AllHeaders) error
 
 	ProcessResponseBody(ctx *RequestContext, body []byte) error
 	ProcessRequestBody(ctx *RequestContext, body []byte) error
@@ -116,7 +116,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.EndOfStream = h.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessRequestHeaders(rc, rc.Headers, rc.HeaderRawValues)
+		err = processor.ProcessRequestHeaders(rc, rc.GetAllHeaders())
 		// TODO: _Could_ stack processors internally, e.g.
 		//
 		// 		for _, p := range s.processors { err = p.ProcessRequestHeaders(...); if err != nil { break } }
@@ -151,10 +151,10 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		ts := req.RequestTrailers
 
 		//TODO: err check
-		trailers, trailerRawBytes, _ := genHeaders(ts.Trailers)
+		trailers, _ := genHeaders(ts.Trailers)
 
 		ps = time.Now()
-		err = processor.ProcessRequestTrailers(rc, trailers, trailerRawBytes)
+		err = processor.ProcessRequestTrailers(rc, trailers)
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
@@ -167,10 +167,10 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		// _response_ headers
 
-		headers, headerRawBytes, _ := genHeaders(hs.Headers)
+		headers, _ := genHeaders(hs.Headers)
 
 		ps = time.Now()
-		err = processor.ProcessResponseHeaders(rc, headers, headerRawBytes)
+		err = processor.ProcessResponseHeaders(rc, headers)
 		rc.Duration += time.Since(ps)
 
 		if s.options.UpdateExtProcHeader {
@@ -203,10 +203,10 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		ts := req.ResponseTrailers
 
-		trailers, trailerRawBytes, _ := genHeaders(ts.Trailers)
+		trailers, _ := genHeaders(ts.Trailers)
 
 		ps = time.Now()
-		err = processor.ProcessResponseTrailers(rc, trailers, trailerRawBytes)
+		err = processor.ProcessResponseTrailers(rc, trailers)
 		rc.Duration += time.Since(ps)
 
 	default:

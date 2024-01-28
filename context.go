@@ -2,7 +2,6 @@ package extproc
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -37,10 +36,8 @@ type RequestContext struct {
 	Path      string
 	RequestId string
 
-	Headers map[string][]string
-
-	// Header value is encoded as bytes which can support non-utf8 characters.
-	HeaderRawValues map[string][]byte
+	Headers     map[string][]string
+	ByteHeaders map[string][]byte
 
 	Started     time.Time
 	Duration    time.Duration
@@ -49,27 +46,9 @@ type RequestContext struct {
 	response    PhaseResponse
 }
 
-func genHeaders(headerMap *corev3.HeaderMap) (headers map[string][]string, rawBytes map[string][]byte, err error) {
-	headers = map[string][]string{}
-	rawBytes = map[string][]byte{}
-
-	for _, h := range headerMap.Headers {
-		if len(h.Value) > 0 && len(h.RawValue) > 0 {
-			err = fmt.Errorf("only one of 'value' or 'raw_value' can be set")
-			return
-		}
-
-		if len(h.Value) > 0 {
-			headers[h.Key] = strings.Split(h.Value, ",")
-		} else {
-			rawBytes[h.Key] = h.RawValue
-		}
-	}
-	return
-}
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
-	var err error
-	rc.Headers, rc.HeaderRawValues, err = genHeaders(headers)
+
+	allHeaders, err := genHeaders(headers)
 	if err != nil {
 		return err
 	}
@@ -83,29 +62,36 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
 
-	for _, h := range headers.Headers {
-		switch h.Key {
+	// string and byte header processing
+	rc.ByteHeaders = allHeaders.ByteHeaders
+	rc.Headers = make(map[string][]string)
+	for k, v := range allHeaders.Headers {
+		switch k {
 		case ":scheme":
-			rc.Scheme = h.Value
+			rc.Scheme = v[0]
 
 		case ":authority":
-			rc.Authority = h.Value
+			rc.Authority = v[0]
 
 		case ":method":
-			rc.Method = h.Value
+			rc.Method = v[0]
 
 		case ":path":
-			rc.Path = strings.Split(h.Value, "?")[0]
+			rc.Path = strings.Split(v[0], "?")[0]
 
 		case "x-request-id":
-			rc.RequestId = h.Value
+			rc.RequestId = v[0]
 
 		default:
-			//placeholder
+			rc.Headers[k] = v
 		}
 	}
 
 	return nil
+}
+
+func (rc *RequestContext) GetAllHeaders() AllHeaders {
+	return AllHeaders{rc.Headers, rc.ByteHeaders}
 }
 
 func (rc *RequestContext) GetValue(name string) (any, error) {
