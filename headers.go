@@ -8,8 +8,8 @@ import (
 )
 
 type AllHeaders struct {
-	Headers     map[string][]string
-	ByteHeaders map[string][]byte
+	Headers    map[string][]string
+	RawHeaders map[string][]byte
 }
 
 func genHeaders(headerMap *corev3.HeaderMap) (headers AllHeaders, err error) {
@@ -24,7 +24,7 @@ func genHeaders(headerMap *corev3.HeaderMap) (headers AllHeaders, err error) {
 		if len(h.Value) > 0 {
 			headers.Headers[h.Key] = strings.Split(h.Value, ",")
 		} else {
-			headers.ByteHeaders[h.Key] = h.RawValue
+			headers.RawHeaders[h.Key] = h.RawValue
 		}
 	}
 	return

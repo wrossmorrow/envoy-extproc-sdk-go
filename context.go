@@ -63,7 +63,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	rc.ResetPhase()
 
 	// string and byte header processing
-	rc.RawHeaders = allHeaders.ByteHeaders
+	rc.RawHeaders = allHeaders.RawHeaders
 	rc.Headers = make(map[string][]string)
 	for k, v := range allHeaders.Headers {
 		switch k {
