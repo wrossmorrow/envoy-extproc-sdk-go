@@ -116,7 +116,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.EndOfStream = h.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessRequestHeaders(rc, rc.GetAllHeaders())
+		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders())
 		// TODO: _Could_ stack processors internally, e.g.
 		//
 		// 		for _, p := range s.processors { err = p.ProcessRequestHeaders(...); if err != nil { break } }

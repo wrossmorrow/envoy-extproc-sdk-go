@@ -34,10 +34,10 @@ type RequestContext struct {
 	Authority string
 	Method    string
 	Path      string
-	RequestId string
+	RequestID string
 
-	Headers     map[string][]string
-	ByteHeaders map[string][]byte
+	Headers    map[string][]string
+	RawHeaders map[string][]byte
 
 	Started     time.Time
 	Duration    time.Duration
@@ -63,7 +63,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	rc.ResetPhase()
 
 	// string and byte header processing
-	rc.ByteHeaders = allHeaders.ByteHeaders
+	rc.RawHeaders = allHeaders.ByteHeaders
 	rc.Headers = make(map[string][]string)
 	for k, v := range allHeaders.Headers {
 		switch k {
@@ -80,7 +80,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 			rc.Path = strings.Split(v[0], "?")[0]
 
 		case "x-request-id":
-			rc.RequestId = v[0]
+			rc.RequestID = v[0]
 
 		default:
 			rc.Headers[k] = v
@@ -90,8 +90,8 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	return nil
 }
 
-func (rc *RequestContext) GetAllHeaders() AllHeaders {
-	return AllHeaders{rc.Headers, rc.ByteHeaders}
+func (rc *RequestContext) AllHeaders() AllHeaders {
+	return AllHeaders{rc.Headers, rc.RawHeaders}
 }
 
 func (rc *RequestContext) GetValue(name string) (any, error) {
