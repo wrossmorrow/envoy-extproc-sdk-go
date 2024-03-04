@@ -61,7 +61,7 @@ func (s *dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, he
 	if ctx.EndOfStream {
 		digest := hex.EncodeToString(hasher.Sum(nil))
 		ctx.SetValue("digest", digest)
-		ctx.AddHeader("x-extproc-request-digest", "", []byte(digest))
+		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
 		if dedupable(ctx) {
 			if isRequestCached(digest) {
 				return ctx.CancelRequest(409, map[string]ep.HeaderValue{}, "")
@@ -83,7 +83,7 @@ func (s *dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body 
 	if ctx.EndOfStream {
 		digest := hex.EncodeToString(hasher.Sum(nil))
 		ctx.SetValue("digest", digest)
-		ctx.AddHeader("x-extproc-request-digest", "", []byte(digest))
+		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
 		if dedupable(ctx) {
 			if isRequestCached(digest) {
 				return ctx.CancelRequest(409, map[string]ep.HeaderValue{}, "")
@@ -104,7 +104,7 @@ func (s *dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, h
 	digest, _ := getDigest(ctx)
 	uncacheRequest(digest)
 	if ctx.EndOfStream {
-		ctx.AddHeader("x-extproc-request-digest", "", []byte(digest))
+		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
 	}
 	return ctx.ContinueRequest()
 }
@@ -113,7 +113,7 @@ func (s *dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 	digest, _ := getDigest(ctx)
 	uncacheRequest(digest)
 	if ctx.EndOfStream {
-		ctx.AddHeader("x-extproc-request-digest", "", []byte(digest))
+		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
 	}
 	return ctx.ContinueRequest()
 }

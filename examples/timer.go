@@ -20,7 +20,7 @@ func (s *timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s *timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
-	ctx.OverwriteHeader("x-extproc-started-ns", "", []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10)))
+	ctx.OverwriteHeader("x-extproc-started-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10))})
 
 	return ctx.ContinueRequest()
 }
@@ -37,9 +37,9 @@ func (s *timerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, h
 	finished := time.Now()
 	duration := time.Since(ctx.Started)
 
-	ctx.AddHeader("x-extproc-started-ns", "", []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10)))
-	ctx.AddHeader("x-extproc-finished-ns", "", []byte(strconv.FormatInt(finished.UnixNano(), 10)))
-	ctx.AddHeader("x-upstream-duration-ns", "", []byte(strconv.FormatInt(duration.Nanoseconds(), 10)))
+	ctx.AddHeader("x-extproc-started-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10))})
+	ctx.AddHeader("x-extproc-finished-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(finished.UnixNano(), 10))})
+	ctx.AddHeader("x-upstream-duration-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(duration.Nanoseconds(), 10))})
 
 	return ctx.ContinueRequest()
 }
@@ -48,9 +48,9 @@ func (s *timerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 	finished := time.Now()
 	duration := time.Since(ctx.Started)
 
-	ctx.OverwriteHeader("x-extproc-started-ns", "", []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10)))
-	ctx.OverwriteHeader("x-extproc-finished-ns", "", []byte(strconv.FormatInt(finished.UnixNano(), 10)))
-	ctx.OverwriteHeader("x-upstream-duration-ns", "", []byte(strconv.FormatInt(duration.Nanoseconds(), 10)))
+	ctx.OverwriteHeader("x-extproc-started-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10))})
+	ctx.OverwriteHeader("x-extproc-finished-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(finished.UnixNano(), 10))})
+	ctx.OverwriteHeader("x-upstream-duration-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(duration.Nanoseconds(), 10))})
 
 	return ctx.ContinueRequest()
 }

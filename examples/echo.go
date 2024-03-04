@@ -41,7 +41,7 @@ func (s *echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 	}
 
 	if ctx.EndOfStream {
-		return ctx.CancelRequest(200, joinHeaders(ctx.Headers), "")
+		return ctx.CancelRequest(200, joinHeaders(ctx.AllHeaders.Headers), "")
 	}
 	return ctx.ContinueRequest()
 
@@ -60,7 +60,7 @@ func (s *echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body [
 	if !match {
 		return ctx.ContinueRequest()
 	}
-	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body))
+	return ctx.CancelRequest(200, joinHeaders(ctx.AllHeaders.Headers), string(body))
 }
 
 func (s *echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {

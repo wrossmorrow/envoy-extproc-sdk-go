@@ -36,6 +36,7 @@ type HeaderValue struct {
 }
 
 type RequestContext struct {
+	// parsed from header
 	Scheme    string
 	Authority string
 	Method    string
@@ -43,8 +44,7 @@ type RequestContext struct {
 	FullPath  string
 	RequestID string
 
-	Headers    map[string][]string
-	RawHeaders map[string][]byte
+	AllHeaders AllHeaders
 
 	Started     time.Time
 	Duration    time.Duration
@@ -76,9 +76,13 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	rc.ResetPhase()
 
 	// string and byte header processing
-	//rc.RawHeaders = allHeaders.RawHeaders
-	rc.RawHeaders = map[string][]byte{}
-	rc.Headers = map[string][]string{}
+
+	var err error
+	rc.AllHeaders, err = genHeaders(headers)
+	if err != nil {
+		return fmt.Errorf("parse header is failed: %w", err)
+	}
+
 	for _, h := range headers.Headers {
 		switch h.Key {
 		case ":scheme":
@@ -98,20 +102,11 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 			rc.RequestID = eitherValue(h)
 
 		default:
-			if len(h.Value) != 0 {
-				rc.Headers[h.Key] = strings.Split(h.Value, ",")
-			} else {
-				rc.RawHeaders[h.Key] = h.RawValue
-			}
-
 		}
+
 	}
 
 	return nil
-}
-
-func (rc *RequestContext) AllHeaders() AllHeaders {
-	return AllHeaders{rc.Headers, rc.RawHeaders}
 }
 
 func (rc *RequestContext) GetValue(name string) (any, error) {
@@ -255,8 +250,8 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 
 }
 
-func (rc *RequestContext) UpdateHeader(name string, value string, rawValue []byte, action string) error {
-	if len(value) != 0 && rawValue != nil {
+func (rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error {
+	if len(hv.Value) != 0 && hv.RawValue != nil {
 		return fmt.Errorf("only one of 'value' or 'raw_value' can be set")
 	}
 	hm := rc.response.headerMutation
@@ -264,23 +259,23 @@ func (rc *RequestContext) UpdateHeader(name string, value string, rawValue []byt
 		corev3.HeaderValueOption_HeaderAppendAction_value[action],
 	)
 	h := &corev3.HeaderValueOption{
-		Header:       &corev3.HeaderValue{Key: name, Value: value, RawValue: rawValue},
+		Header:       &corev3.HeaderValue{Key: name, Value: hv.Value, RawValue: hv.RawValue},
 		AppendAction: aa,
 	}
 	hm.SetHeaders = append(hm.SetHeaders, h)
 	return nil
 }
 
-func (rc *RequestContext) AppendHeader(name string, value string, rawValue []byte) error {
-	return rc.UpdateHeader(name, value, rawValue, "APPEND_IF_EXISTS_OR_ADD")
+func (rc *RequestContext) AppendHeader(name string, hv HeaderValue) error {
+	return rc.UpdateHeader(name, hv, "APPEND_IF_EXISTS_OR_ADD")
 }
 
-func (rc *RequestContext) AddHeader(name string, value string, rawValue []byte) error {
-	return rc.UpdateHeader(name, value, rawValue, "ADD_IF_ABSENT")
+func (rc *RequestContext) AddHeader(name string, hv HeaderValue) error {
+	return rc.UpdateHeader(name, hv, "ADD_IF_ABSENT")
 }
 
-func (rc *RequestContext) OverwriteHeader(name string, value string, rawValue []byte) error {
-	return rc.UpdateHeader(name, value, rawValue, "OVERWRITE_IF_EXISTS_OR_ADD")
+func (rc *RequestContext) OverwriteHeader(name string, hv HeaderValue) error {
+	return rc.UpdateHeader(name, hv, "OVERWRITE_IF_EXISTS_OR_ADD")
 }
 
 func (rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error {

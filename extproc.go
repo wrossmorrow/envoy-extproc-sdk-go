@@ -116,7 +116,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.EndOfStream = h.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders())
+		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders)
 		// TODO: _Could_ stack processors internally, e.g.
 		//
 		// 		for _, p := range s.processors { err = p.ProcessRequestHeaders(...); if err != nil { break } }
@@ -174,10 +174,10 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 		if s.options.UpdateExtProcHeader {
-			rc.AppendHeader("x-extproc-names", "", []byte(s.name))
+			rc.AppendHeader("x-extproc-names", HeaderValue{RawValue: []byte(s.name)})
 		}
 		if rc.EndOfStream && s.options.UpdateDurationHeader {
-			rc.AppendHeader("x-extproc-duration-ns", "", []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10)))
+			rc.AppendHeader("x-extproc-duration-ns", HeaderValue{RawValue: []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10))})
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
@@ -193,7 +193,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 		if rc.EndOfStream && s.options.UpdateDurationHeader {
-			rc.AppendHeader("x-extproc-duration-ns", "", []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10)))
+			rc.AppendHeader("x-extproc-duration-ns", HeaderValue{RawValue: []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10))})
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
