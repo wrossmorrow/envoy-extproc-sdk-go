@@ -41,12 +41,10 @@ type RequestContext struct {
 	Method    string
 	Path      string
 	FullPath  string
-	RequestId string
+	RequestID string
 
-	Headers map[string][]string
-
-	// Header value is encoded as bytes which can support non-utf8 characters.
-	HeaderRawValues map[string][]byte
+	Headers    map[string][]string
+	RawHeaders map[string][]byte
 
 	Started     time.Time
 	Duration    time.Duration
@@ -55,31 +53,7 @@ type RequestContext struct {
 	response    PhaseResponse
 }
 
-func genHeaders(headerMap *corev3.HeaderMap) (headers map[string][]string, rawValue map[string][]byte, err error) {
-	headers = map[string][]string{}
-	rawValue = map[string][]byte{}
-
-	for _, h := range headerMap.Headers {
-		if len(h.Value) > 0 && len(h.RawValue) > 0 {
-			err = fmt.Errorf("only one of 'value' or 'raw_value' can be set")
-			return
-		}
-
-		if len(h.Value) > 0 {
-			headers[h.Key] = strings.Split(h.Value, ",")
-		} else {
-			rawValue[h.Key] = h.RawValue
-		}
-	}
-	return
-}
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
-	var err error
-	rc.Headers, rc.HeaderRawValues, err = genHeaders(headers)
-	if err != nil {
-		return err
-	}
-
 	rc.Started = time.Now()
 	rc.Duration = 0
 
@@ -101,10 +75,15 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
 
+	// string and byte header processing
+	//rc.RawHeaders = allHeaders.RawHeaders
+	rc.RawHeaders = map[string][]byte{}
+	rc.Headers = map[string][]string{}
 	for _, h := range headers.Headers {
 		switch h.Key {
 		case ":scheme":
 			rc.Scheme = eitherValue(h)
+
 		case ":authority":
 			rc.Authority = eitherValue(h)
 
@@ -116,14 +95,23 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 			rc.Path = strings.Split(rc.FullPath, "?")[0]
 
 		case "x-request-id":
-			rc.RequestId = eitherValue(h)
+			rc.RequestID = eitherValue(h)
 
 		default:
-			//placeholder
+			if len(h.Value) != 0 {
+				rc.Headers[h.Key] = strings.Split(h.Value, ",")
+			} else {
+				rc.RawHeaders[h.Key] = h.RawValue
+			}
+
 		}
 	}
 
 	return nil
+}
+
+func (rc *RequestContext) AllHeaders() AllHeaders {
+	return AllHeaders{rc.Headers, rc.RawHeaders}
 }
 
 func (rc *RequestContext) GetValue(name string) (any, error) {

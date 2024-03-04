@@ -31,14 +31,14 @@ run example="noop":
     cd examples && just run {{example}}
 
 # build binary (variadic flags supported)
-build *FLAGS="":
-    go build {{FLAGS}}
+build *flags="":
+    go build {{flags}}
 
 # tag for a release
-tag VERSION="":
-    git tag v{{VERSION}} && git push origin --tags
+tag version="":
+    git tag v{{version}} && git push origin --tags
 
 # release a new version, via a specific commit (deprecate)
-release VERSION="":
-    git commit -m "release v{{VERSION}}" \
-        && git push && just tag {{VERSION}}
+release version="":
+    git commit -m "release v{{version}}" \
+        && git push && just tag {{version}}
