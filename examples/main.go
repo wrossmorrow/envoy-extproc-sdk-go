@@ -16,15 +16,14 @@ type processor interface {
 }
 
 var processors = map[string]processor{
-	"noop":        &noopRequestProcessor{},
-	"trivial":     &trivialRequestProcessor{},
-	"timer":       &timerRequestProcessor{},
-	"data":        &dataRequestProcessor{},
-	"digest":      &digestRequestProcessor{},
-	"dedup":       &dedupRequestProcessor{},
-	"masker":      &maskerRequestProcessor{},
-	"echo":        &echoRequestProcessor{},
-	"method-conv": &methodConvRequestProcessor{},
+	"noop":    &noopRequestProcessor{},
+	"trivial": &trivialRequestProcessor{},
+	"timer":   &timerRequestProcessor{},
+	"data":    &dataRequestProcessor{},
+	"digest":  &digestRequestProcessor{},
+	"dedup":   &dedupRequestProcessor{},
+	"masker":  &maskerRequestProcessor{},
+	"echo":    &echoRequestProcessor{},
 }
 
 func parseArgs(args []string) (port *int, opts *ep.ProcessingOptions, nonFlagArgs []string) {
