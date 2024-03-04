@@ -17,7 +17,7 @@ func (s *trivialRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s *trivialRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers map[string][]string, headerRawValues map[string][]byte) error {
-	ctx.AddHeader("x-extproc-request", "seen")
+	ctx.AddHeader("x-extproc-request", "", []byte("seen"))
 	return ctx.ContinueRequest() // returns an error if response malformed
 }
 
@@ -34,7 +34,7 @@ func (s *trivialRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext,
 }
 
 func (s *trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
-	ctx.AddHeader("x-extproc-response", "seen")
+	ctx.AddHeader("x-extproc-response", "", []byte("seen"))
 	return ctx.ContinueRequest() // returns an error if response malformed
 }
 

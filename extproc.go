@@ -174,10 +174,10 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 		if s.options.UpdateExtProcHeader {
-			rc.AppendHeader("x-extproc-names", s.name)
+			rc.AppendHeader("x-extproc-names", "", []byte(s.name))
 		}
 		if rc.EndOfStream && s.options.UpdateDurationHeader {
-			rc.AppendHeader("x-extproc-duration-ns", strconv.FormatInt(rc.Duration.Nanoseconds(), 10))
+			rc.AppendHeader("x-extproc-duration-ns", "", []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10)))
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
@@ -193,7 +193,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 		if rc.EndOfStream && s.options.UpdateDurationHeader {
-			rc.AppendHeader("x-extproc-duration-ns", strconv.FormatInt(rc.Duration.Nanoseconds(), 10))
+			rc.AppendHeader("x-extproc-duration-ns", "", []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10)))
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
