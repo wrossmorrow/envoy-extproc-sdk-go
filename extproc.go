@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"strconv"
-	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -17,17 +16,19 @@ import (
 type RequestProcessor interface {
 	GetName() string
 	GetOptions() *ProcessingOptions
-	ProcessRequestHeaders(ctx *RequestContext, headers map[string][]string) error
-	ProcessRequestBody(ctx *RequestContext, body []byte) error
-	ProcessRequestTrailers(ctx *RequestContext, trailers map[string][]string) error
-	ProcessResponseHeaders(ctx *RequestContext, headers map[string][]string) error
+
+	ProcessRequestHeaders(ctx *RequestContext, headers AllHeaders) error
+	ProcessRequestTrailers(ctx *RequestContext, trailers AllHeaders) error
+	ProcessResponseHeaders(ctx *RequestContext, headers AllHeaders) error
+	ProcessResponseTrailers(ctx *RequestContext, trailers AllHeaders) error
+
 	ProcessResponseBody(ctx *RequestContext, body []byte) error
-	ProcessResponseTrailers(ctx *RequestContext, trailers map[string][]string) error
+	ProcessRequestBody(ctx *RequestContext, body []byte) error
 }
 
 type GenericExtProcServer struct {
 	name      string
-	processor *RequestProcessor
+	processor RequestProcessor
 	options   *ProcessingOptions
 }
 
@@ -37,7 +38,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	}
 
 	if s.options == nil {
-		s.options = NewOptions()
+		s.options = NewDefaultOptions()
 	}
 
 	if s.options.LogStream {
@@ -72,7 +73,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		// RequestHeaders phase processing.
 		_ = rc.ResetPhase()
 
-		resp, err := s.processPhase(req, *s.processor, rc)
+		resp, err := s.processPhase(req, s.processor, rc)
 		if err != nil {
 			log.Printf("Phase processing error %v", err)
 		} else if resp == nil {
@@ -90,7 +91,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	} // end for over stream messages
 }
 
-func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
+func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
 	if rc == nil {
 		log.Printf("WARNING: RequestContext is undefined (nil)\n")
 	}
@@ -102,20 +103,20 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 
 	phase := REQUEST_PHASE_UNDETERMINED
 
-	switch v := req.Request.(type) {
+	switch req := procReq.Request.(type) {
 	case *extprocv3.ProcessingRequest_RequestHeaders:
 		phase = REQUEST_PHASE_REQUEST_HEADERS
 		if s.options.LogPhases {
-			log.Printf("Processing Request Headers: %v \n", v)
+			log.Printf("Processing Request Headers: %v \n", req)
 		}
-		h := req.Request.(*extprocv3.ProcessingRequest_RequestHeaders).RequestHeaders
+		h := req.RequestHeaders
 
 		// initialize request context (requires _not_ skipping request headers)
 		_ = initReqCtx(rc, h.Headers)
 		rc.EndOfStream = h.EndOfStream
 
 		ps = time.Now()
-		err = processor.ProcessRequestHeaders(rc, rc.Headers)
+		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders())
 		// TODO: _Could_ stack processors internally, e.g.
 		//
 		// 		for _, p := range s.processors { err = p.ProcessRequestHeaders(...); if err != nil { break } }
@@ -133,9 +134,9 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 	case *extprocv3.ProcessingRequest_RequestBody:
 		phase = REQUEST_PHASE_REQUEST_BODY
 		if s.options.LogPhases {
-			log.Printf("Processing Request Body: %v \n", v)
+			log.Printf("Processing Request Body: %v \n", req)
 		}
-		b := req.Request.(*extprocv3.ProcessingRequest_RequestBody).RequestBody
+		b := req.RequestBody
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
@@ -145,14 +146,12 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 	case *extprocv3.ProcessingRequest_RequestTrailers:
 		phase = REQUEST_PHASE_REQUEST_TRAILERS
 		if s.options.LogPhases {
-			log.Printf("Processing Request Trailers: %v \n", v)
+			log.Printf("Processing Request Trailers: %v \n", req)
 		}
-		ts := req.Request.(*extprocv3.ProcessingRequest_RequestTrailers).RequestTrailers
+		ts := req.RequestTrailers
 
-		trailers := make(map[string][]string)
-		for _, h := range ts.Trailers.Headers {
-			trailers[h.Key] = strings.Split(h.Value, ",")
-		}
+		//TODO: err check
+		trailers, _ := genHeaders(ts.Trailers)
 
 		ps = time.Now()
 		err = processor.ProcessRequestTrailers(rc, trailers)
@@ -161,16 +160,14 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		phase = REQUEST_PHASE_RESPONSE_HEADERS
 		if s.options.LogPhases {
-			log.Printf("Processing Response Headers: %v \n", v)
+			log.Printf("Processing Response Headers: %v \n", req)
 		}
-		hs := req.Request.(*extprocv3.ProcessingRequest_ResponseHeaders).ResponseHeaders
+		hs := req.ResponseHeaders
 		rc.EndOfStream = hs.EndOfStream
 
 		// _response_ headers
-		headers := make(map[string][]string)
-		for _, h := range hs.Headers.Headers {
-			headers[h.Key] = strings.Split(h.Value, ",")
-		}
+
+		headers, _ := genHeaders(hs.Headers)
 
 		ps = time.Now()
 		err = processor.ProcessResponseHeaders(rc, headers)
@@ -186,9 +183,9 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 	case *extprocv3.ProcessingRequest_ResponseBody:
 		phase = REQUEST_PHASE_RESPONSE_BODY
 		if s.options.LogPhases {
-			log.Printf("Processing Response Body: %v \n", v)
+			log.Printf("Processing Response Body: %v \n", req)
 		}
-		b := req.Request.(*extprocv3.ProcessingRequest_ResponseBody).ResponseBody
+		b := req.ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
@@ -202,14 +199,11 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
 		phase = REQUEST_PHASE_RESPONSE_TRAILERS
 		if s.options.LogPhases {
-			log.Printf("Processing Response Trailers: %v \n", v)
+			log.Printf("Processing Response Trailers: %v \n", req)
 		}
-		ts := req.Request.(*extprocv3.ProcessingRequest_ResponseTrailers).ResponseTrailers
+		ts := req.ResponseTrailers
 
-		trailers := make(map[string][]string)
-		for _, h := range ts.Trailers.Headers {
-			trailers[h.Key] = strings.Split(h.Value, ",")
-		}
+		trailers, _ := genHeaders(ts.Trailers)
 
 		ps = time.Now()
 		err = processor.ProcessResponseTrailers(rc, trailers)
@@ -217,7 +211,7 @@ func (s *GenericExtProcServer) processPhase(req *extprocv3.ProcessingRequest, pr
 
 	default:
 		if s.options.LogPhases {
-			log.Printf("Unknown Request type: %v\n", v)
+			log.Printf("Unknown Request type: %v\n", req)
 		}
 		err = errors.New("unknown request type")
 	}

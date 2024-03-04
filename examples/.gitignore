@@ -1,0 +1,6 @@
+
+# ignore built executable
+examples
+
+# ignore current copy of the library
+extproc

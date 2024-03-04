@@ -3,6 +3,7 @@ package extproc
 import (
 	"errors"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,12 +30,15 @@ type PhaseResponse struct {
 }
 
 type RequestContext struct {
-	Scheme      string
-	Authority   string
-	Method      string
-	Path        string
-	RequestId   string
-	Headers     map[string][]string
+	Scheme    string
+	Authority string
+	Method    string
+	Path      string
+	RequestID string
+
+	Headers    map[string][]string
+	RawHeaders map[string][]byte
+
 	Started     time.Time
 	Duration    time.Duration
 	EndOfStream bool
@@ -43,9 +47,14 @@ type RequestContext struct {
 }
 
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
+
+	allHeaders, err := genHeaders(headers)
+	if err != nil {
+		return err
+	}
+
 	rc.Started = time.Now()
 	rc.Duration = 0
-	rc.Headers = make(map[string][]string)
 
 	// for custom data between phases
 	rc.data = make(map[string]any)
@@ -53,29 +62,36 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
 
-	for _, h := range headers.Headers {
-		switch h.Key {
+	// string and byte header processing
+	rc.RawHeaders = allHeaders.RawHeaders
+	rc.Headers = make(map[string][]string)
+	for k, v := range allHeaders.Headers {
+		switch k {
 		case ":scheme":
-			rc.Scheme = h.Value
+			rc.Scheme = v[0]
 
 		case ":authority":
-			rc.Authority = h.Value
+			rc.Authority = v[0]
 
 		case ":method":
-			rc.Method = h.Value
+			rc.Method = v[0]
 
 		case ":path":
-			rc.Path = strings.Split(h.Value, "?")[0]
+			rc.Path = strings.Split(v[0], "?")[0]
 
 		case "x-request-id":
-			rc.RequestId = h.Value
+			rc.RequestID = v[0]
 
 		default:
-			rc.Headers[h.Key] = strings.Split(h.Value, ",")
+			rc.Headers[k] = v
 		}
 	}
 
 	return nil
+}
+
+func (rc *RequestContext) AllHeaders() AllHeaders {
+	return AllHeaders{rc.Headers, rc.RawHeaders}
 }
 
 func (rc *RequestContext) GetValue(name string) (any, error) {
@@ -273,7 +289,7 @@ func (rc *RequestContext) OverwriteHeaders(headers map[string]string) error {
 
 func (rc *RequestContext) RemoveHeader(name string) error {
 	hm := rc.response.headerMutation
-	if !StrInSlice(hm.RemoveHeaders, name) {
+	if !slices.Contains(hm.RemoveHeaders, name) {
 		hm.RemoveHeaders = append(hm.RemoveHeaders, name)
 	}
 	return nil
@@ -282,7 +298,7 @@ func (rc *RequestContext) RemoveHeader(name string) error {
 func (rc *RequestContext) RemoveHeaders(headers []string) error {
 	hm := rc.response.headerMutation
 	for _, h := range headers {
-		if !StrInSlice(hm.RemoveHeaders, h) {
+		if !slices.Contains(hm.RemoveHeaders, h) {
 			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
 		}
 	}
@@ -292,7 +308,7 @@ func (rc *RequestContext) RemoveHeaders(headers []string) error {
 func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	hm := rc.response.headerMutation
 	for _, h := range headers {
-		if !StrInSlice(hm.RemoveHeaders, h) {
+		if !slices.Contains(hm.RemoveHeaders, h) {
 			hm.RemoveHeaders = append(hm.RemoveHeaders, h)
 		}
 	}

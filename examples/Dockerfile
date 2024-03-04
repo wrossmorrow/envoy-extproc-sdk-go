@@ -1,4 +1,4 @@
-FROM golang:1.19.2-bullseye
+FROM golang:1.21.6-bullseye
 
 SHELL ["/bin/bash", "-c"]
 
@@ -7,24 +7,21 @@ RUN apt-get update && apt-get -y upgrade \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -y clean
 
-# https://github.com/grpc-ecosystem/grpc-health-probe/#example-grpc-health-checking-on-kubernetes
-RUN GRPC_HEALTH_PROBE_VER=v0.3.1 \
-    && GRPC_HEALTH_PROBE_URL=https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VER}/grpc_health_probe-linux-amd64 \
-    && curl ${GRPC_HEALTH_PROBE_URL} -L -s -o /bin/grpc_health_probe \
-    && chmod +x /bin/grpc_health_probe
-
-WORKDIR /app
-
-ARG EXAMPLE=noop
+WORKDIR /build
 
 COPY go.mod *.go ./
-RUN sed -Ei.bak '/replace github\.com\/wrossmorrow\/envoy-extproc-sdk-go/d' go.mod \
-    && go mod tidy \
+COPY extproc ./extproc
+RUN sed -Ei.bak 's,replace github\.com/wrossmorrow/envoy-extproc-sdk-go => ../,replace github.com/wrossmorrow/envoy-extproc-sdk-go => ./extproc,p' go.mod
+RUN go mod tidy \
     && go mod download \
     && go build -o /extproc
 
+FROM golang:1.21.6-bullseye
+
+COPY --from=0 /extproc /extproc
+
 EXPOSE 50051
 
-CMD [ "/extproc" ]
-
-
+ARG EXAMPLE=noop
+ENTRYPOINT [ "/extproc" ]
+CMD [ "noop" ]

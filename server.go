@@ -16,6 +16,10 @@ import (
 )
 
 func Serve(port int, processor RequestProcessor) {
+	if processor == nil {
+		log.Fatalf("cannot process request stream without `processor`")
+	}
+
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -28,7 +32,7 @@ func Serve(port int, processor RequestProcessor) {
 	opts := processor.GetOptions() // TODO: figure out command line overrides
 	extproc := &GenericExtProcServer{
 		name:      name,
-		processor: &processor,
+		processor: processor,
 		options:   opts,
 	}
 	epb.RegisterExternalProcessorServer(s, extproc)
