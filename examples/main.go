@@ -43,7 +43,6 @@ func parseArgs(args []string) (port *int, opts *ep.ProcessingOptions, nonFlagArg
 }
 
 func main() {
-
 	// cmd subCmd arg, arg2,...
 	args := os.Args
 	if len(args) < 2 {

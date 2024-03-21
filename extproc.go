@@ -150,7 +150,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		ts := req.RequestTrailers
 
-		//TODO: err check
+		// TODO: err check
 		trailers, _ := genHeaders(ts.Trailers)
 
 		ps = time.Now()
