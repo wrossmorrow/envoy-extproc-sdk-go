@@ -92,7 +92,7 @@ func (s *maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body
 	// replace body, unmarshalled to []byte
 	if len(masked["request"]) > 0 {
 		log.Print("examining request body")
-		if isMaybeJSON(ctx.Headers) {
+		if isMaybeJSON(ctx.AllHeaders.Headers) {
 			log.Print("request body may be JSON")
 			masked, err := maskJSONData(masked["request"], body)
 			if err != nil {

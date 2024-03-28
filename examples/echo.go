@@ -5,16 +5,17 @@ import (
 	"strings"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	extproc "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type echoRequestProcessor struct {
 	opts *ep.ProcessingOptions
 }
 
-func joinHeaders(mvhs map[string][]string) map[string]string {
-	hs := make(map[string]string)
+func joinHeaders(mvhs map[string][]string) map[string]extproc.HeaderValue {
+	hs := make(map[string]extproc.HeaderValue)
 	for n, vs := range mvhs {
-		hs[n] = strings.Join(vs, ",")
+		hs[n] = extproc.HeaderValue{Value: strings.Join(vs, ",")}
 	}
 	return hs
 }
@@ -40,7 +41,7 @@ func (s *echoRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, hea
 	}
 
 	if ctx.EndOfStream {
-		return ctx.CancelRequest(200, joinHeaders(ctx.Headers), "")
+		return ctx.CancelRequest(200, joinHeaders(ctx.AllHeaders.Headers), "")
 	}
 	return ctx.ContinueRequest()
 
@@ -59,7 +60,7 @@ func (s *echoRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body [
 	if !match {
 		return ctx.ContinueRequest()
 	}
-	return ctx.CancelRequest(200, joinHeaders(ctx.Headers), string(body))
+	return ctx.CancelRequest(200, joinHeaders(ctx.AllHeaders.Headers), string(body))
 }
 
 func (s *echoRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
