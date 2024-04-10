@@ -40,16 +40,15 @@ func Serve(port int, processor RequestProcessor) {
 
 	log.Printf("Starting ExtProc(%s) on port %d\n", name, port)
 
-	var gracefulStop = make(chan os.Signal, 1)
+	go s.Serve(lis)
+
+	gracefulStop := make(chan os.Signal, 1)
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
-	go func() {
-		sig := <-gracefulStop
-		log.Printf("caught sig: %+v", sig)
-		log.Println("Wait for 1 second to finish processing")
-		time.Sleep(1 * time.Second)
-		os.Exit(0)
-	}()
-	s.Serve(lis)
+	sig := <-gracefulStop
+	log.Printf("caught sig: %+v", sig)
+	log.Println("Wait for 1 second to finish processing")
+	lis.Close()
 
+	time.Sleep(1 * time.Second)
 }

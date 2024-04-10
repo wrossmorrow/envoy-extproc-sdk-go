@@ -22,37 +22,42 @@ Implement the `extproc.RequestProcessor` interface, and pass an instance to the 
 This SDK uses a `struct`
 ```go
 type GenericExtProcServer struct {
-    name      string
-    processor requestProcessor
+  name      string
+  processor RequestProcessor
+  options   *ProcessingOptions
 }
+
 ```
 an interface
 ```go
 type RequestProcessor interface {
-    GetName() string
-    GetOptions() *ProcessingOptions
-    ProcessRequestHeaders(ctx *requestContext, headers map[string][]string) error
-    ProcessRequestBody(ctx *requestContext, body []byte]) error
-    ProcessRequestTrailers(ctx *requestContext, trailers map[string][]string) error
-    ProcessResponseHeaders(ctx *requestContext, headers map[string][]string) error
-    ProcessResponseBody(ctx *requestContext, body []byte) error
-    ProcessResponseTrailers(ctx *requestContext, trailers map[string][]string) error
+  GetName() string
+  GetOptions() *ProcessingOptions
+  ProcessRequestHeaders(ctx *RequestContext, headers AllHeaders) error
+  ProcessRequestTrailers(ctx *RequestContext, trailers AllHeaders) error
+  ProcessResponseHeaders(ctx *RequestContext, headers AllHeaders) error
+  ProcessResponseTrailers(ctx *RequestContext, trailers AllHeaders) error
+  ProcessResponseBody(ctx *RequestContext, body []byte) error
+  ProcessRequestBody(ctx *RequestContext, body []byte) error
 }
+
 ```
 and a context object
 ```go
 type RequestContext struct {
-    Scheme      string
-    Authority   string
-    Method      string
-    Path        string
-    RequestId   string
-    Headers     map[string][]string
-    Started     time.Time
-    Duration    time.Duration
-    EndOfStream bool
-    data        map[string]any
-    response    PhaseResponse
+  // parsed from header
+  Scheme    string
+  Authority string
+  Method    string
+  Path      string
+  FullPath  string
+  RequestID string
+  AllHeaders AllHeaders
+  Started     time.Time
+  Duration    time.Duration
+  EndOfStream bool
+  data        map[string]any
+  response    PhaseResponse
 }
 ```
 that work together to allow processing of requests and responses. An ExtProc service can be run with the `Serve` method as in
@@ -110,18 +115,20 @@ In particular, the methods
 (rc *RequestContext) ContinueRequest() error
 (rc *RequestContext) CancelRequest(status int32, headers map[string]string, body string) error
 ```
-define request phase responses for "continuing" and "responding immediately". Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. 
+define request phase responses for "continuing" and "responding immediately". Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling.
 
 ### Modifying Headers
 
-You can add headers to a response with the convenience methods 
+You can add headers to a response with the convenience methods
 ```go
-(rc *RequestContext) AppendHeader(name string, value string) error
-(rc *RequestContext) AddHeader(name string, value string) error
-(rc *RequestContext) OverwriteHeader(name string, value string) error
-(rc *RequestContext) AppendHeaders(headers map[string]string) error
-(rc *RequestContext) AddHeaders(headers map[string]string) error
-(rc *RequestContext) OverwriteHeaders(headers map[string]string) error
+(rc *RequestContext) AddHeader(name string, hv HeaderValue) error
+(rc *RequestContext) AddHeaders(headers map[string]HeaderValue) error
+(rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error
+(rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error
+(rc *RequestContext) AppendHeader(name string, hv HeaderValue) error
+(rc *RequestContext) AppendHeaders(headers map[string]HeaderValue) error
+(rc *RequestContext) OverwriteHeader(name string, hv HeaderValue) error
+(rc *RequestContext) OverwriteHeaders(headers map[string]HeaderValue) error
 ```
 where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call.
 
@@ -131,7 +138,7 @@ Headers can be removed with the
 (rc *RequestContext) RemoveHeaders(headers []string) error
 (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error
 ```
-methods, requiring only names of headers to remove. 
+methods, requiring only names of headers to remove.
 
 ### Modifying Bodies
 

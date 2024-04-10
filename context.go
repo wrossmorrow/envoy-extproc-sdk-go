@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ const (
 	REQUEST_PHASE_RESPONSE_BODY     = 5
 	REQUEST_PHASE_RESPONSE_TRAILERS = 6
 )
+
+const kContentLength = "Content-Length"
 
 type PhaseResponse struct {
 	headerMutation    *extprocv3.HeaderMutation    // any response
@@ -103,7 +106,6 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 
 		default:
 		}
-
 	}
 
 	return nil
@@ -125,7 +127,7 @@ func (rc *RequestContext) SetValue(name string, val any) error {
 func (rc *RequestContext) ResetPhase() error {
 	rc.EndOfStream = false
 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
-	rc.response.bodyMutation = &extprocv3.BodyMutation{}
+	rc.response.bodyMutation = nil
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = nil
 	return nil
@@ -135,12 +137,14 @@ func (rc *RequestContext) ContinueRequest() error {
 	if rc.response.immediateResponse != nil {
 		rc.response.immediateResponse = nil
 	}
+
 	rc.response.continueRequest = &extprocv3.CommonResponse{
 		// status? (ie response phase status)
 		HeaderMutation: rc.response.headerMutation,
 		BodyMutation:   rc.response.bodyMutation,
 		// trailers?
 	}
+
 	return nil
 }
 
@@ -247,7 +251,6 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 	default:
 		return nil, errors.New("unknown request phase")
 	}
-
 }
 
 func (rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error {
@@ -337,11 +340,19 @@ func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 }
 
 func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
+	size := len(body)
+	if size == 0 {
+		return nil
+	}
+
 	rc.response.bodyMutation = &extprocv3.BodyMutation{
 		Mutation: &extprocv3.BodyMutation_Body{
 			Body: body,
 		},
 	}
+
+	rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(size))})
+
 	return nil
 }
 
