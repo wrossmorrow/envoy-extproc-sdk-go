@@ -2,7 +2,7 @@ services:
 
   # envoy, configured as with envoy.yaml to use extprocs
   envoy:
-    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.22-latest}
+    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.29-latest}
     ports:
       - "8080:8000"
       - "9901:9901"
