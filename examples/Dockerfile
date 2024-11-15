@@ -1,4 +1,4 @@
-FROM golang:1.21.6-bullseye
+FROM golang:1.22.7-bullseye
 
 SHELL ["/bin/bash", "-c"]
 
@@ -16,7 +16,7 @@ RUN go mod tidy \
     && go mod download \
     && go build -o /extproc
 
-FROM golang:1.21.6-bullseye
+FROM golang:1.22.7-bullseye
 
 COPY --from=0 /extproc /extproc
 

@@ -157,7 +157,7 @@ func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderV
 			Code: typev3.StatusCode(status),
 		},
 		Headers: rc.response.headerMutation,
-		Body:    body,
+		Body:    []byte(body),
 	}
 	return nil
 }
