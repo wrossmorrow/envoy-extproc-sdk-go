@@ -21,7 +21,6 @@ func (s *timerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 
 func (s *timerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
 	ctx.OverwriteHeader("x-extproc-started-ns", ep.HeaderValue{RawValue: []byte(strconv.FormatInt(ctx.Started.UnixNano(), 10))})
-
 	return ctx.ContinueRequest()
 }
 

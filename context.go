@@ -3,28 +3,17 @@ package extproc
 import (
 	"errors"
 	"fmt"
-	"log"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 )
-
-const (
-	REQUEST_PHASE_UNDETERMINED      = 0
-	REQUEST_PHASE_REQUEST_HEADERS   = 1
-	REQUEST_PHASE_REQUEST_BODY      = 2
-	REQUEST_PHASE_REQUEST_TRAILERS  = 3
-	REQUEST_PHASE_RESPONSE_HEADERS  = 4
-	REQUEST_PHASE_RESPONSE_BODY     = 5
-	REQUEST_PHASE_RESPONSE_TRAILERS = 6
-)
-
-const kContentLength = "Content-Length"
 
 type PhaseResponse struct {
 	headerMutation    *extprocv3.HeaderMutation    // any response
@@ -33,44 +22,46 @@ type PhaseResponse struct {
 	immediateResponse *extprocv3.ImmediateResponse // headers/body responses
 }
 
-type HeaderValue struct {
-	Value    string
-	RawValue []byte
-}
-
 type RequestContext struct {
-	// parsed from header
-	Scheme    string
-	Authority string
-	Method    string
-	Path      string
-	FullPath  string
-	RequestID string
+	Scheme    string              // from :scheme header
+	Authority string              // from :authority header
+	Method    string              // from :method header
+	FullPath  string              // from :path header
+	Path      string              // from :path header, parsed
+	Query     map[string][]string // from :path header, parsed
+	RequestID string              // from x-request-id header, if present
 
-	AllHeaders AllHeaders
+	AllHeaders *AllHeaders // all request/response headers
 
-	Started     time.Time
-	Duration    time.Duration
+	Status   uint16        // response status code, when available
+	Started  time.Time     // when processing started
+	Duration time.Duration // appoximate, cumulative duration of external processing
+
 	EndOfStream bool
-	data        map[string]any
-	response    PhaseResponse
+
+	data       map[string]any // named data store for clients passing values
+	response   PhaseResponse
+	bodybuffer *EncodedBody // reset on request headers, response headers
 }
 
-func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
-	rc.Started = time.Now()
-	rc.Duration = 0
+func eitherValue(h *corev3.HeaderValue) string {
+	if h == nil {
+		return ""
+	}
 
-	eitherValue := func(h *corev3.HeaderValue) string {
-		if h == nil {
-			return ""
-		}
-
-		val := h.Value
-		if len(h.RawValue) > 0 {
+	val := h.Value
+	if len(h.RawValue) > 0 {
+		if utf8.Valid(h.RawValue) {
 			val = string(h.RawValue)
 		}
-		return val
 	}
+	return val
+}
+
+// func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
+func initReqCtx(rc *RequestContext, headers *AllHeaders) error {
+	rc.Started = time.Now()
+	rc.Duration = 0
 
 	// for custom data between phases
 	rc.data = make(map[string]any)
@@ -78,39 +69,91 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
 
-	// string and byte header processing
+	// string and byte header processing for "standard" data
 
 	var err error
-	rc.AllHeaders, err = genHeaders(headers)
-	if err != nil {
-		return fmt.Errorf("parse header is failed: %w", err)
-	}
 
-	for _, h := range headers.Headers {
-		switch h.Key {
-		case ":scheme":
-			rc.Scheme = eitherValue(h)
+	// rc.AllHeaders, err = NewAllHeadersFromEnvoyHeaderMap(headers)
+	// if err != nil {
+	// 	return fmt.Errorf("parse header is failed: %w", err)
+	// }
+	rc.AllHeaders = headers
 
-		case ":authority":
-			rc.Authority = eitherValue(h)
+	// parse internal data -- an alternative would be to receive all headers,
+	// extract all these values, and then drop the envoy headers. That shouldn't
+	// iterate over all headers as well.
+	rc.Scheme, _ = rc.AllHeaders.GetHeaderValueAsString(":scheme")
+	rc.Authority, _ = rc.AllHeaders.GetHeaderValueAsString(":authority")
+	rc.Method, _ = rc.AllHeaders.GetHeaderValueAsString(":method")
+	rc.FullPath, _ = rc.AllHeaders.GetHeaderValueAsString(":path")
 
-		case ":method":
-			rc.Method = eitherValue(h)
-
-		case ":path":
-			rc.FullPath = eitherValue(h)
-			rc.Path = strings.Split(rc.FullPath, "?")[0]
-
-		case "x-request-id":
-			rc.RequestID = eitherValue(h)
-
-		default:
+	pathParts := strings.Split(rc.FullPath, "?")
+	rc.Path = pathParts[0]
+	if len(pathParts) > 1 {
+		rc.Query, err = url.ParseQuery(pathParts[1])
+		if err != nil {
+			fmt.Printf("failed to parse query string: %v\n", err)
+			rc.Query = nil
 		}
+	} else {
+		rc.Query = nil
 	}
+
+	rc.RequestID, err = rc.AllHeaders.GetHeaderValueAsString("x-request-id")
+	if err != nil {
+		rc.RequestID = ""
+	}
+
+	// for _, h := range headers.Headers {
+	// 	switch h.Key {
+	// 	case ":scheme":
+	// 		rc.Scheme = eitherValue(h)
+
+	// 	case ":authority":
+	// 		rc.Authority = eitherValue(h)
+
+	// 	case ":method":
+	// 		rc.Method = eitherValue(h)
+
+	// 	case ":path":
+	// 		rc.FullPath = eitherValue(h)
+	// 		pathParts := strings.Split(rc.FullPath, "?")
+	// 		rc.Path = pathParts[0]
+	// 		if len(pathParts) > 1 {
+	// 			rc.Query, err = url.ParseQuery(pathParts[1])
+	// 			if err != nil {
+	// 				fmt.Printf("failed to parse query string: %v\n", err)
+	// 				rc.Query = nil
+	// 			}
+	// 		} else {
+	// 			rc.Query = nil
+	// 		}
+
+	// 	case "x-request-id":
+	// 		rc.RequestID = eitherValue(h)
+
+	// 	default:
+	// 	}
+	// }
+
+	// remove "envoy" headers from (copied) headers, so clients don't need to parse
+	rc.AllHeaders.DropHeadersNamedStartingWith(":")
 
 	return nil
 }
 
+// @deprecate: migrate to clearer name "HasStoredValue"
+func (rc *RequestContext) HasValue(name string) bool {
+	_, exists := rc.data[name]
+	return exists
+}
+
+func (rc *RequestContext) HasStoredValue(name string) bool {
+	_, exists := rc.data[name]
+	return exists
+}
+
+// @deprecate: migrate to clearer name "GetStoredValue"
 func (rc *RequestContext) GetValue(name string) (any, error) {
 	val, exists := rc.data[name]
 	if exists {
@@ -119,7 +162,21 @@ func (rc *RequestContext) GetValue(name string) (any, error) {
 	return nil, errors.New(name + " does not exist")
 }
 
+func (rc *RequestContext) GetStoredValue(name string) (any, error) {
+	val, exists := rc.data[name]
+	if exists {
+		return val, nil
+	}
+	return nil, errors.New(name + " does not exist")
+}
+
+// @deprecate: migrate to clearer name "SetStoredValue"
 func (rc *RequestContext) SetValue(name string, val any) error {
+	rc.data[name] = val
+	return nil
+}
+
+func (rc *RequestContext) SetStoredValue(name string, val any) error {
 	rc.data[name] = val
 	return nil
 }
@@ -149,7 +206,6 @@ func (rc *RequestContext) ContinueRequest() error {
 }
 
 func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderValue, body string) error {
-	log.Printf("Cancelling request: %d, %v, %s", status, headers, body)
 	rc.AppendHeaders(headers)
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = &extprocv3.ImmediateResponse{
@@ -363,4 +419,39 @@ func (rc *RequestContext) ClearBodyChunk() error {
 		},
 	}
 	return nil
+}
+
+func (rc *RequestContext) parseStatusFromResponseHeaders(headers AllHeaders) error {
+
+	rc.Status = uint16(0)
+
+	statusStrVals, statusBytes, exists := headers.GetHeaderValue(":status")
+	if !exists {
+		return errors.New("no :status header exists in AllHeaders passed")
+	}
+
+	var err error
+	var statusInt int64
+
+	if statusBytes != nil && len(statusBytes) > 0 {
+		statusStr := string(statusBytes)
+		statusInt, err = strconv.ParseInt(statusStr, 0, 16)
+		if err != nil {
+			return err
+		}
+		rc.Status = uint16(statusInt)
+		return nil
+	}
+
+	if statusStrVals != nil && len(statusStrVals) > 0 {
+		statusStr := statusStrVals[0] // take first, only first
+		statusInt, err = strconv.ParseInt(statusStr, 0, 16)
+		if err != nil {
+			return err
+		}
+		rc.Status = uint16(statusInt)
+		return nil
+	}
+
+	return errors.New("Could not parse existing :status header as a status")
 }

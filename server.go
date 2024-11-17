@@ -13,6 +13,7 @@ import (
 
 	epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	hpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
 )
 
 func Serve(port int, processor RequestProcessor) {
@@ -27,6 +28,7 @@ func Serve(port int, processor RequestProcessor) {
 
 	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(1000)}
 	s := grpc.NewServer(sopts...)
+	reflection.Register(s)
 
 	name := processor.GetName()
 	opts := processor.GetOptions() // TODO: figure out command line overrides
@@ -38,17 +40,28 @@ func Serve(port int, processor RequestProcessor) {
 	epb.RegisterExternalProcessorServer(s, extproc)
 	hpb.RegisterHealthServer(s, &HealthServer{})
 
+	timeout := int64(5) // 5 seconds default timeout
+	timeoutStr := os.Getenv("EXTPROC_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS")
+	if len(timeoutStr) > 0 {
+		val, err := strconv.ParseInt(timeoutStr, 10, 64)
+		if err == nil {
+			timeout = val
+		} else {
+			log.Printf("Unable to parse timeout %s, using default %d seconds\n", timeoutStr, timeout)
+		}
+	}
+
 	log.Printf("Starting ExtProc(%s) on port %d\n", name, port)
 
 	go s.Serve(lis)
 
-	gracefulStop := make(chan os.Signal, 1)
+	gracefulStop := make(chan os.Signal, timeout)
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
 	sig := <-gracefulStop
 	log.Printf("caught sig: %+v", sig)
-	log.Println("Wait for 1 second to finish processing")
+	log.Printf("Wait for %d seconds to finish processing\n", timeout)
 	lis.Close()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(time.Duration(timeout) * time.Second)
 }

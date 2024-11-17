@@ -78,7 +78,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			log.Printf("Phase processing error %v", err)
 		} else if resp == nil {
 			log.Printf("Phase processing did not define a response")
-			// TODO: what here?
+			// TODO: what here? continue request?
 		} else {
 			if s.options.LogPhases {
 				log.Printf("Sending ProcessingResponse: %v \n", resp)
@@ -111,12 +111,16 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		h := req.RequestHeaders
 
+		// should we ignore errors in header parsing?
+		ah, _ := NewAllHeadersFromEnvoyHeaderMap(h.Headers)
+
 		// initialize request context (requires _not_ skipping request headers)
-		_ = initReqCtx(rc, h.Headers)
+		_ = initReqCtx(rc, &ah)
 		rc.EndOfStream = h.EndOfStream
 
-		ps = time.Now()
-		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders)
+		// set content-type, content-encoding, and/or transfer-encoding as available
+		rc.bodybuffer = NewEncodedBodyFromHeaders(rc.AllHeaders)
+
 		// TODO: _Could_ stack processors internally, e.g.
 		//
 		// 		for _, p := range s.processors { err = p.ProcessRequestHeaders(...); if err != nil { break } }
@@ -129,6 +133,8 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		// it's much easier to reason about one processor per ExtProc.
 		// Users can "stack" whatever behaviors they like in the processors
 		// themselves anyway.
+		ps = time.Now()
+		err = processor.ProcessRequestHeaders(rc, *rc.AllHeaders)
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_RequestBody:
@@ -138,6 +144,9 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		b := req.RequestBody
 		rc.EndOfStream = b.EndOfStream
+
+		// TODO: optional in-code body buffering for streaming?
+		// TODO: optional content-encoding based decompression?
 
 		ps = time.Now()
 		err = processor.ProcessRequestBody(rc, b.Body)
@@ -151,7 +160,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		ts := req.RequestTrailers
 
 		// TODO: err check
-		trailers, _ := genHeaders(ts.Trailers)
+		trailers, _ := NewAllHeadersFromEnvoyHeaderMap(ts.Trailers)
 
 		ps = time.Now()
 		err = processor.ProcessRequestTrailers(rc, trailers)
@@ -167,7 +176,18 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		// _response_ headers
 
-		headers, _ := genHeaders(hs.Headers)
+		headers, _ := NewAllHeadersFromEnvoyHeaderMap(hs.Headers)
+
+		// set status (ignoring error if found, 0 default)
+		_ = rc.parseStatusFromResponseHeaders(headers)
+
+		// remove "envoy" headers from (copied) headers, so clients don't need to parse
+		headers.DropHeadersNamedStartingWith(":")
+
+		rc.AllHeaders = &headers
+
+		// set content-type, content-encoding, and/or transfer-encoding as available
+		rc.bodybuffer = NewEncodedBodyFromHeaders(&headers)
 
 		ps = time.Now()
 		err = processor.ProcessResponseHeaders(rc, headers)
@@ -188,6 +208,9 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		b := req.ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
+		// TODO: optional in-code body buffering for streaming?
+		// TODO: optional content-encoding based decompression?
+
 		ps = time.Now()
 		err = processor.ProcessResponseBody(rc, b.Body)
 		rc.Duration += time.Since(ps)
@@ -203,7 +226,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		ts := req.ResponseTrailers
 
-		trailers, _ := genHeaders(ts.Trailers)
+		trailers, _ := NewAllHeadersFromEnvoyHeaderMap(ts.Trailers)
 
 		ps = time.Now()
 		err = processor.ProcessResponseTrailers(rc, trailers)

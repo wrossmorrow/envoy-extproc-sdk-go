@@ -37,7 +37,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: noop
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -53,7 +53,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: trivial
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -69,7 +69,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: timer
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -85,7 +85,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: data
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -101,7 +101,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: digest
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -117,7 +117,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: dedup
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -133,7 +133,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: masker
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
@@ -149,7 +149,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: echo
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
