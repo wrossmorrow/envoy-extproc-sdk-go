@@ -13,6 +13,11 @@ import (
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
+// Primary interface for supported request processing that SDK users must
+// implement, passing a complying type to `GenericExtProcServer` or `Serve`.
+//
+// TODO: Passing through health check calls would help support better reasoning
+// about dependencies for external processing (e.g., DB or kafka availability)
 type RequestProcessor interface {
 	GetName() string
 	GetOptions() *ProcessingOptions
@@ -26,12 +31,21 @@ type RequestProcessor interface {
 	ProcessRequestBody(ctx *RequestContext, body []byte) error
 }
 
+// Definition for DRY body handling
+type BodyHandler func(*RequestContext, []byte) error
+
+// Generic type for an external processor to which we can attach a gRPC bidi stream
+// implementation.
 type GenericExtProcServer struct {
 	name      string
 	processor RequestProcessor
 	options   *ProcessingOptions
 }
 
+// Implementation of the bidi stream `Process` in an external processor. Given the
+// type data `processor` and `options`, this intends to manage construction and
+// updating of a `RequestContext` and calls to the `processor`'s phase-specific
+// methods.
 func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
 	if s.processor == nil {
 		log.Fatalf("cannot process request stream without `processor` interface")
@@ -45,7 +59,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		log.Printf("Starting request stream in \"%s\"", s.name)
 	}
 
-	rc := &RequestContext{}
+	rc := &RequestContext{
+		extProcOptions: s.options,
+	}
 	ctx := srv.Context()
 
 	for {
@@ -86,11 +102,13 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			if err := srv.Send(resp); err != nil {
 				log.Printf("Send error %v", err)
 			}
+			// TODO: enable stream cancellation, may have a leak without it?
 		}
 
 	} // end for over stream messages
 }
 
+// Internal per-phase processing logic, with a defined `RequestContext` and `RequestProcessor`
 func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
 	if rc == nil {
 		log.Printf("WARNING: RequestContext is undefined (nil)\n")
@@ -111,7 +129,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		h := req.RequestHeaders
 
-		// should we ignore errors in header parsing?
+		// TODO: err check, but what is an error?
 		ah, _ := NewAllHeadersFromEnvoyHeaderMap(h.Headers)
 
 		// initialize request context (requires _not_ skipping request headers)
@@ -145,11 +163,8 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		b := req.RequestBody
 		rc.EndOfStream = b.EndOfStream
 
-		// TODO: optional in-code body buffering for streaming?
-		// TODO: optional content-encoding based decompression?
-
 		ps = time.Now()
-		err = processor.ProcessRequestBody(rc, b.Body)
+		err = rc.handleBodyChunk(processor.ProcessRequestBody, s.options, b.Body)
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
@@ -159,7 +174,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		ts := req.RequestTrailers
 
-		// TODO: err check
+		// TODO: err check, but what is an error?
 		trailers, _ := NewAllHeadersFromEnvoyHeaderMap(ts.Trailers)
 
 		ps = time.Now()
@@ -176,6 +191,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		// _response_ headers
 
+		// TODO: err check, but what is an error?
 		headers, _ := NewAllHeadersFromEnvoyHeaderMap(hs.Headers)
 
 		// set status (ignoring error if found, 0 default)
@@ -208,11 +224,8 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		b := req.ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
-		// TODO: optional in-code body buffering for streaming?
-		// TODO: optional content-encoding based decompression?
-
 		ps = time.Now()
-		err = processor.ProcessResponseBody(rc, b.Body)
+		err = rc.handleBodyChunk(processor.ProcessResponseBody, s.options, b.Body)
 		rc.Duration += time.Since(ps)
 
 		if rc.EndOfStream && s.options.UpdateDurationHeader {
@@ -226,6 +239,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		ts := req.ResponseTrailers
 
+		// TODO: err check, but what is an error?
 		trailers, _ := NewAllHeadersFromEnvoyHeaderMap(ts.Trailers)
 
 		ps = time.Now()
