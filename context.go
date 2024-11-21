@@ -225,7 +225,10 @@ func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderV
 }
 
 // Internal method to get/form the formal envoy external processor service
-// response to a streaming processing request.
+// response to a streaming processing request. Returns the response for envoy, 
+// a flag denoting if the stream can be considered finished, and possibly an
+// error. The "finished" flag in particular is so the server can cancel the 
+// stream with envoy, which envoy itself may not do.
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
 	// handle immediate responses
 	if rc.response.immediateResponse != nil {
@@ -237,6 +240,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					ImmediateResponse: rc.response.immediateResponse,
 				},
 			}, nil
+			// }, true, nil
 
 		// trailers phases don't have an ImmediateResponse option
 		// (only changes to headers permitted)

@@ -77,6 +77,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 		req, err := srv.Recv()
 		if err == io.EOF {
+			if s.options.LogStream {
+				log.Printf("Request stream terminated in \"%s\"", s.name)
+			}
 			return nil
 		}
 		if err != nil {
@@ -91,9 +94,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 		resp, err := s.processPhase(req, s.processor, rc)
 		if err != nil {
-			log.Printf("Phase processing error %v", err)
+			log.Printf("Phase processing error %v\n", err)
 		} else if resp == nil {
-			log.Printf("Phase processing did not define a response")
+			log.Printf("Phase processing did not define a response\n")
 			// TODO: what here? continue request?
 		} else {
 			if s.options.LogPhases {
@@ -102,8 +105,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			if err := srv.Send(resp); err != nil {
 				log.Printf("Send error %v", err)
 			}
-			// TODO: enable stream cancellation, may have a leak without it?
 		}
+		// TODO: enable stream cancellation, may have a leak without it?
+
 
 	} // end for over stream messages
 }
