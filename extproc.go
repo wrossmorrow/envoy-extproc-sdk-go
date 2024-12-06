@@ -108,7 +108,6 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		}
 		// TODO: enable stream cancellation, may have a leak without it?
 
-
 	} // end for over stream messages
 }
 

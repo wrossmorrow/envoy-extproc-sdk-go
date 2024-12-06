@@ -94,6 +94,7 @@ func initReqCtx(rc *RequestContext, headers *AllHeaders) error {
 
 	rc.RequestID, err = rc.AllHeaders.GetHeaderValueAsString(rc.extProcOptions.RequestIdHeaderName)
 	if err != nil {
+		fmt.Printf("request id header \"%s\" not found, using fallback \"%s\"\n", rc.extProcOptions.RequestIdHeaderName, rc.extProcOptions.RequestIdFallback)
 		rc.RequestID = rc.extProcOptions.RequestIdFallback
 	}
 
@@ -225,9 +226,9 @@ func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderV
 }
 
 // Internal method to get/form the formal envoy external processor service
-// response to a streaming processing request. Returns the response for envoy, 
+// response to a streaming processing request. Returns the response for envoy,
 // a flag denoting if the stream can be considered finished, and possibly an
-// error. The "finished" flag in particular is so the server can cancel the 
+// error. The "finished" flag in particular is so the server can cancel the
 // stream with envoy, which envoy itself may not do.
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
 	// handle immediate responses
