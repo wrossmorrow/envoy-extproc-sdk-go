@@ -2,8 +2,9 @@ package extproc
 
 import (
 	"errors"
+	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/google/uuid"
 )
 
 // Primary interface for supported request processing that SDK users must
@@ -40,6 +42,7 @@ type GenericExtProcServer struct {
 	name      string
 	processor RequestProcessor
 	options   *ProcessingOptions
+	logger    *slog.Logger
 }
 
 // Implementation of the bidi stream `Process` in an external processor. Given the
@@ -47,8 +50,15 @@ type GenericExtProcServer struct {
 // updating of a `RequestContext` and calls to the `processor`'s phase-specific
 // methods.
 func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
+
+	streamId, _ := uuid.NewV7()
+
+	logger := s.logger.With(slog.Any("extproc_name", s.name), slog.Any("stream_id", streamId))
+
 	if s.processor == nil {
-		log.Fatalf("cannot process request stream without `processor` interface")
+		msg := "cannot process request stream without `processor` interface"
+		logger.Error(msg)
+		return fmt.Errorf(msg)
 	}
 
 	if s.options == nil {
@@ -56,11 +66,12 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	}
 
 	if s.options.LogStream {
-		log.Printf("Starting request stream in \"%s\"", s.name)
+		logger.Info("Starting request stream")
 	}
 
 	rc := &RequestContext{
 		extProcOptions: s.options,
+		StreamId:       streamId,
 	}
 	ctx := srv.Context()
 
@@ -68,7 +79,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		select {
 		case <-ctx.Done():
 			if s.options.LogStream {
-				log.Printf("Request stream terminated in \"%s\"", s.name)
+				logger.Info("Request stream terminated")
 			}
 			return ctx.Err()
 
@@ -76,13 +87,22 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		}
 
 		req, err := srv.Recv()
-		if errors.Is(err, io.EOF) || status.Code(err) == codes.Canceled {
+		if errors.Is(err, io.EOF) {
 			if s.options.LogStream {
-				log.Printf("Request stream terminated in \"%s\"", s.name)
+				logger.Info("Request stream terminated", slog.Any("condition", "EOF"))
+			}
+			return nil
+		}
+		if status.Code(err) == codes.Canceled {
+			if s.options.LogStream {
+				logger.Info("Request stream terminated", slog.Any("condition", "CANCELLED"))
 			}
 			return nil
 		}
 		if err != nil {
+			if s.options.LogStream {
+				logger.Error("Failed to read stream", slog.Any("condition", "ERROR"))
+			}
 			return status.Errorf(codes.Unknown, "cannot receive stream request: %v", err)
 		}
 
@@ -92,21 +112,22 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		// RequestHeaders phase processing.
 		_ = rc.ResetPhase()
 
-		resp, err := s.processPhase(req, s.processor, rc)
+		resp, err := s.processPhase(req, s.processor, rc, logger)
 		if err != nil {
-			log.Printf("Phase processing error %v\n", err)
+			logger.Debug("Phase processing error", slog.Any("error", err))
 			return status.Errorf(codes.Unknown, "error processing phase: %v", err)
 		}
 		if resp == nil {
-			log.Printf("Phase processing did not define a response\n")
+			logger.Error("Phase processing error", slog.Any("error", "no response or error"))
 			// TODO: what here? continue request? response cannot really be null
 			return status.Errorf(codes.Unknown, "error processing phase: no response and no error")
 		}
 		if s.options.LogPhases {
-			log.Printf("Sending ProcessingResponse: %v \n", resp)
+			logger.Debug("Sending ProcessingResponse", slog.Any("response", resp))
+			logger.Info("Sending ProcessingResponse")
 		}
 		if err := srv.Send(resp); err != nil {
-			log.Printf("Send error %v", err)
+			logger.Error("Send response error", slog.Any("error", err))
 			return status.Errorf(codes.Unknown, "error sending response: %v", err)
 		}
 		// TODO: enable stream cancellation, may have a leak without it?
@@ -115,9 +136,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 }
 
 // Internal per-phase processing logic, with a defined `RequestContext` and `RequestProcessor`
-func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext) (*extprocv3.ProcessingResponse, error) {
+func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest, processor RequestProcessor, rc *RequestContext, logger *slog.Logger) (*extprocv3.ProcessingResponse, error) {
 	if rc == nil {
-		log.Printf("WARNING: RequestContext is undefined (nil)\n")
+		logger.Warn("RequestContext is undefined (nil)")
 	}
 
 	var (
@@ -129,10 +150,12 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	switch req := procReq.Request.(type) {
 	case *extprocv3.ProcessingRequest_RequestHeaders:
-		phase = REQUEST_PHASE_REQUEST_HEADERS
+
 		if s.options.LogPhases {
-			log.Printf("Processing Request Headers: %v \n", req)
+			logger.Info("Processing request headers")
 		}
+
+		phase = REQUEST_PHASE_REQUEST_HEADERS
 		h := req.RequestHeaders
 
 		// TODO: err check, but what is an error?
@@ -162,10 +185,12 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_RequestBody:
-		phase = REQUEST_PHASE_REQUEST_BODY
+
 		if s.options.LogPhases {
-			log.Printf("Processing Request Body: %v \n", req)
+			logger.Info("Processing request body")
 		}
+
+		phase = REQUEST_PHASE_REQUEST_BODY
 		b := req.RequestBody
 		rc.EndOfStream = b.EndOfStream
 
@@ -174,10 +199,12 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
-		phase = REQUEST_PHASE_REQUEST_TRAILERS
+
 		if s.options.LogPhases {
-			log.Printf("Processing Request Trailers: %v \n", req)
+			logger.Info("Processing request trailers")
 		}
+
+		phase = REQUEST_PHASE_REQUEST_TRAILERS
 		ts := req.RequestTrailers
 
 		// TODO: err check, but what is an error?
@@ -188,10 +215,12 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
-		phase = REQUEST_PHASE_RESPONSE_HEADERS
+
 		if s.options.LogPhases {
-			log.Printf("Processing Response Headers: %v \n", req)
+			logger.Info("Processing response headers")
 		}
+
+		phase = REQUEST_PHASE_RESPONSE_HEADERS
 		hs := req.ResponseHeaders
 		rc.EndOfStream = hs.EndOfStream
 
@@ -223,10 +252,12 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
-		phase = REQUEST_PHASE_RESPONSE_BODY
+
 		if s.options.LogPhases {
-			log.Printf("Processing Response Body: %v \n", req)
+			logger.Info("Processing response body")
 		}
+
+		phase = REQUEST_PHASE_RESPONSE_BODY
 		b := req.ResponseBody
 		rc.EndOfStream = b.EndOfStream
 
@@ -239,10 +270,12 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
-		phase = REQUEST_PHASE_RESPONSE_TRAILERS
+
 		if s.options.LogPhases {
-			log.Printf("Processing Response Trailers: %v \n", req)
+			logger.Info("Processing response trailers")
 		}
+
+		phase = REQUEST_PHASE_RESPONSE_TRAILERS
 		ts := req.ResponseTrailers
 
 		// TODO: err check, but what is an error?
@@ -253,9 +286,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.Duration += time.Since(ps)
 
 	default:
-		if s.options.LogPhases {
-			log.Printf("Unknown Request type: %v\n", req)
-		}
+		logger.Warn("Unknown Request type", slog.Any("type", req))
 		err = errors.New("unknown request type")
 	}
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"github.com/google/uuid"
 )
 
 // Internal structure to manage construction of responses to streaming
@@ -29,6 +30,8 @@ type PhaseResponse struct {
 // and populated, thus skipping request headers is not feasible. There should
 // be one context per request, and it should not be shared across requests.
 type RequestContext struct {
+	StreamId uuid.UUID // a generated ID for this stream (not requestID)
+
 	Scheme    string              // from envoy's `:scheme` header
 	Authority string              // from envoy's `:authority` header
 	Method    string              // from envoy's `:method` header
