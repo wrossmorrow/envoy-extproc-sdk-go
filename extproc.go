@@ -76,7 +76,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		}
 
 		req, err := srv.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) || status.Code(err) == codes.Canceled {
 			if s.options.LogStream {
 				log.Printf("Request stream terminated in \"%s\"", s.name)
 			}
@@ -95,16 +95,19 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		resp, err := s.processPhase(req, s.processor, rc)
 		if err != nil {
 			log.Printf("Phase processing error %v\n", err)
-		} else if resp == nil {
+			return status.Errorf(codes.Unknown, "error processing phase: %v", err)
+		}
+		if resp == nil {
 			log.Printf("Phase processing did not define a response\n")
-			// TODO: what here? continue request?
-		} else {
-			if s.options.LogPhases {
-				log.Printf("Sending ProcessingResponse: %v \n", resp)
-			}
-			if err := srv.Send(resp); err != nil {
-				log.Printf("Send error %v", err)
-			}
+			// TODO: what here? continue request? response cannot really be null
+			return status.Errorf(codes.Unknown, "error processing phase: no response and no error")
+		}
+		if s.options.LogPhases {
+			log.Printf("Sending ProcessingResponse: %v \n", resp)
+		}
+		if err := srv.Send(resp); err != nil {
+			log.Printf("Send error %v", err)
+			return status.Errorf(codes.Unknown, "error sending response: %v", err)
 		}
 		// TODO: enable stream cancellation, may have a leak without it?
 
