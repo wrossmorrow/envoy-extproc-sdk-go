@@ -3,7 +3,7 @@ package extproc
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"slices"
 	"strconv"
@@ -55,7 +55,7 @@ type RequestContext struct {
 }
 
 // Initialize a request context with parsed headers
-func initReqCtx(rc *RequestContext, headers *AllHeaders) error {
+func initReqCtx(rc *RequestContext, headers *AllHeaders, logger *slog.Logger) error {
 	rc.Started = time.Now()
 	rc.Duration = 0
 
@@ -88,7 +88,7 @@ func initReqCtx(rc *RequestContext, headers *AllHeaders) error {
 	if len(pathParts) > 1 {
 		rc.Query, err = url.ParseQuery(pathParts[1])
 		if err != nil {
-			fmt.Printf("failed to parse query string: %v\n", err)
+			logger.Debug("failed to parse query string", slog.Any("error", err))
 			rc.Query = nil
 		}
 	} else {
@@ -97,7 +97,11 @@ func initReqCtx(rc *RequestContext, headers *AllHeaders) error {
 
 	rc.RequestID, err = rc.AllHeaders.GetHeaderValueAsString(rc.extProcOptions.RequestIdHeaderName)
 	if err != nil {
-		fmt.Printf("request id header \"%s\" not found, using fallback \"%s\"\n", rc.extProcOptions.RequestIdHeaderName, rc.extProcOptions.RequestIdFallback)
+		logger.Debug(
+			"request id header not found, using fallback",
+			slog.Any("request_id_header_name", rc.extProcOptions.RequestIdHeaderName),
+			slog.Any("request_id_fallback_value", rc.extProcOptions.RequestIdFallback),
+		)
 		rc.RequestID = rc.extProcOptions.RequestIdFallback
 	}
 
@@ -114,7 +118,7 @@ func (rc *RequestContext) appendBodyChunk(chunk []byte) error {
 
 // Internal handler for each "chunk" (complete or not) for a request or response
 // body. This is repeated in request and response body handling.
-func (rc *RequestContext) handleBodyChunk(handler BodyHandler, opts *ProcessingOptions, chunk []byte) (err error) {
+func (rc *RequestContext) handleBodyChunk(handler BodyHandler, opts *ProcessingOptions, chunk []byte, logger *slog.Logger) (err error) {
 	if opts.BufferStreamedBodies {
 		err = rc.appendBodyChunk(chunk)
 		if err == nil && rc.EndOfStream {
@@ -122,7 +126,7 @@ func (rc *RequestContext) handleBodyChunk(handler BodyHandler, opts *ProcessingO
 			if opts.DecompressBodies {
 				err = rc.bodybuffer.DecompressBody()
 				if err != nil {
-					log.Printf("Failed to decompress body bytes: %v \n", err)
+					logger.Warn("Failed to decompress body bytes: %v \n", err)
 				}
 			}
 		}
@@ -485,7 +489,7 @@ func (rc *RequestContext) parseStatusFromResponseHeaders(headers AllHeaders) err
 	var err error
 	var statusInt int64
 
-	if statusBytes != nil && len(statusBytes) > 0 {
+	if len(statusBytes) > 0 {
 		statusStr := string(statusBytes)
 		statusInt, err = strconv.ParseInt(statusStr, 0, 16)
 		if err != nil {
@@ -495,7 +499,7 @@ func (rc *RequestContext) parseStatusFromResponseHeaders(headers AllHeaders) err
 		return nil
 	}
 
-	if statusStrVals != nil && len(statusStrVals) > 0 {
+	if len(statusStrVals) > 0 {
 		statusStr := statusStrVals[0] // take first, only first
 		statusInt, err = strconv.ParseInt(statusStr, 0, 16)
 		if err != nil {
@@ -505,5 +509,5 @@ func (rc *RequestContext) parseStatusFromResponseHeaders(headers AllHeaders) err
 		return nil
 	}
 
-	return errors.New("Could not parse existing `:status` header as a status")
+	return errors.New("could not parse existing `:status` header as a status")
 }

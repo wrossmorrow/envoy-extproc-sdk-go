@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"errors"
 	"io"
-	"log"
 )
 
 type BodyType struct {
@@ -156,14 +155,12 @@ func (b *EncodedBody) DecompressBody() error {
 		unzipped, err := gUnzipData(b.Value)
 		if err != nil {
 			b.Decompressed = false
-			log.Printf("gzip decompression failed: %v\n", err)
 			return errors.New("gzip decompression failed")
 		}
 		b.Value = unzipped
 		return nil
 	}
 
-	log.Printf("Decompression for \"%s\" not yet implemented\n", encoding)
 	b.Decompressed = false
 	return errors.New("Unsupported encoding/compression strategy")
 }

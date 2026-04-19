@@ -114,7 +114,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 		resp, err := s.processPhase(req, s.processor, rc, logger)
 		if err != nil {
-			logger.Debug("Phase processing error", slog.Any("error", err))
+			logger.Error("Phase processing error", slog.Any("error", err))
 			return status.Errorf(codes.Unknown, "error processing phase: %v", err)
 		}
 		if resp == nil {
@@ -162,7 +162,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		ah, _ := NewAllHeadersFromEnvoyHeaderMap(h.Headers)
 
 		// initialize request context (requires _not_ skipping request headers)
-		_ = initReqCtx(rc, &ah)
+		_ = initReqCtx(rc, &ah, logger)
 		rc.EndOfStream = h.EndOfStream
 
 		// set content-type, content-encoding, and/or transfer-encoding as available
@@ -195,7 +195,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
-		err = rc.handleBodyChunk(processor.ProcessRequestBody, s.options, b.Body)
+		err = rc.handleBodyChunk(processor.ProcessRequestBody, s.options, b.Body, logger)
 		rc.Duration += time.Since(ps)
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
@@ -262,7 +262,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.EndOfStream = b.EndOfStream
 
 		ps = time.Now()
-		err = rc.handleBodyChunk(processor.ProcessResponseBody, s.options, b.Body)
+		err = rc.handleBodyChunk(processor.ProcessResponseBody, s.options, b.Body, logger)
 		rc.Duration += time.Since(ps)
 
 		if rc.EndOfStream && s.options.UpdateDurationHeader {
