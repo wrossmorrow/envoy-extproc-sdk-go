@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	_ "net/http/pprof"
 	"os"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
@@ -32,10 +33,10 @@ func parseArgs(args []string) (port *int, opts *ep.ProcessingOptions, nonFlagArg
 
 	opts = ep.NewDefaultOptions()
 
-	rootCmd.BoolVar(&opts.LogStream, "log-stream", false, "log the stream or not.")
-	rootCmd.BoolVar(&opts.LogPhases, "log-phases", false, "log the phases or not.")
-	rootCmd.BoolVar(&opts.UpdateExtProcHeader, "update-extproc-header", false, "update the extProc header or not.")
-	rootCmd.BoolVar(&opts.UpdateDurationHeader, "update-duration-header", false, "update the duration header or not.")
+	rootCmd.BoolVar(&opts.LogStream, "log-stream", true, "log the stream or not.")
+	rootCmd.BoolVar(&opts.LogPhases, "log-phases", true, "log the phases or not.")
+	rootCmd.BoolVar(&opts.UpdateExtProcHeader, "update-extproc-header", true, "update the extProc header or not.")
+	rootCmd.BoolVar(&opts.UpdateDurationHeader, "update-duration-header", true, "update the duration header or not.")
 
 	rootCmd.Parse(args)
 	nonFlagArgs = rootCmd.Args()
