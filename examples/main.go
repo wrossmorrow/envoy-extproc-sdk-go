@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	_ "net/http/pprof"
 	"os"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
