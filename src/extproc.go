@@ -34,6 +34,9 @@ type RequestProcessor interface {
 	// processing. An implemented handler can implement any logic it likes.
 	// Phase is the "enum" constants from context.go.
 	ErrorHandler(ctx *RequestContext, phase int, err error)
+
+	// Get notified this processor should shut down
+	Close(gracePeriodSeconds int32) error
 }
 
 type GenericExtProcServer struct {
@@ -44,15 +47,15 @@ type GenericExtProcServer struct {
 	logger    *slog.Logger
 }
 
+func (s *GenericExtProcServer) Close(gracePeriodSeconds int32) error {
+	return s.processor.Close(gracePeriodSeconds)
+}
+
 func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessServer) error {
 	if s.processor == nil {
 		msg := "cannot process request stream without `processor` interface"
 		s.logger.Error(msg)
 		return errors.New(msg)
-	}
-
-	if s.options == nil {
-		s.options = NewDefaultOptions()
 	}
 
 	s.logger.Debug("Starting request stream", slog.String("name", s.name))
@@ -95,11 +98,16 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			return status.Errorf(codes.Unknown, "failed to receive stream request: %v", err)
 		}
 
-		// clear response in the context if defined, this is not
-		// carried across request phases because each one has an
-		// idiosyncratic response. rc gets "initialized" during
-		// RequestHeaders phase processing.
-		_ = rc.ResetPhase()
+		// clear response in the context if defined, this is not carried across request phases because each
+		// one has an idiosyncratic response. rc gets "initialized" during RequestHeaders phase processing.
+		err = rc.ResetPhase()
+		if err != nil {
+			s.metrics.ErroredStreams.Inc()
+			s.logger.Error("Phase processing error", slog.String("phase", RequestPhaseToString(REQUEST_PHASE_UNDETERMINED)), slog.String("error", err.Error()))
+			if s.options.AbortOnProcessorFailure {
+				return status.Errorf(codes.Unknown, "failed to reset extproc context: %v", err)
+			}
+		}
 
 		resp, phase, err := s.processPhase(req, s.processor, rc)
 		phase_name := RequestPhaseToString(phase)
@@ -163,7 +171,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		}
 		rc.EndOfStream = h.EndOfStream
 
-		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders)
+		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
@@ -177,7 +185,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		rc.EndOfStream = b.EndOfStream
 
-		err = processor.ProcessRequestBody(rc, b.Body)
+		err = processor.ProcessRequestBody(rc, b.Body) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
@@ -195,7 +203,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			return nil, phase, err
 		}
 
-		err = processor.ProcessRequestTrailers(rc, trailers)
+		err = processor.ProcessRequestTrailers(rc, trailers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
@@ -214,7 +222,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			return nil, phase, err
 		}
 
-		err = processor.ProcessResponseHeaders(rc, headers)
+		err = processor.ProcessResponseHeaders(rc, headers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
@@ -235,7 +243,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		s.metrics.BodyBytesReturned.Add(float64(len(b.Body)))
 
-		err = processor.ProcessResponseBody(rc, b.Body)
+		err = processor.ProcessResponseBody(rc, b.Body) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
@@ -252,13 +260,13 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		trailers, _ := genHeaders(ts.Trailers)
 
-		err = processor.ProcessResponseTrailers(rc, trailers)
+		err = processor.ProcessResponseTrailers(rc, trailers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
 	default:
 		s.logger.Warn("Unknown request type", slog.Any("request", req))
-		err = errors.New("unknown request type")
+		err = errors.New("unknown request type") //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 	}

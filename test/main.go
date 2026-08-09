@@ -9,7 +9,7 @@ import (
 )
 
 func parseArgs(args []string) (sopts *ep.ServerOptions, popts *ep.ProcessingOptions) {
-	popts = ep.NewDefaultOptions()
+	popts = ep.NewDefaultProcessingOptions()
 	sopts = ep.NewDefaultServerOptions()
 
 	rootCmd := flag.NewFlagSet("root", flag.ExitOnError)
@@ -35,5 +35,5 @@ func main() {
 		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}),
 	)
 
-	ep.Serve(sopts, proc, logger)
+	ep.Serve(sopts, proc, popts, logger)
 }

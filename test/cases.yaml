@@ -1,0 +1,53 @@
+cases:
+  - name: noop
+    description: no op run that just shouldn't fail
+    request:
+      headers: {}
+      request: {}
+  - name: clear request body
+    request:
+      headers: {}
+      request:
+        clear_request_body: true
+  - name: clear response body
+    request:
+      headers: {}
+      request:
+        clear_response_body: true
+  - name: add a request header
+    request:
+      headers:
+        x-add-me: "true"
+      request: {}
+  - name: remove a request header
+    request:
+      headers:
+        x-remove-me: "true"
+      request:
+        remove_request_headers:
+          - x-remove-me
+  - name: overwrite a request header
+    request:
+      headers:
+        x-overwrite-me: "old value"
+      request:
+        overwrite_request_headers:
+          x-overwrite-me: "new value"
+  - name: add a response header
+    request:
+      headers: {}
+      request:
+        add_response_headers:
+          x-add-me: "true"
+  - name: remove a response header
+    request:
+      headers: {}
+      request:
+        remove_response_headers:
+          - date
+  - name: overwrite a response header
+    request:
+      headers: {}
+      request:
+        overwrite_response_headers:
+          content-type: "test/plain"

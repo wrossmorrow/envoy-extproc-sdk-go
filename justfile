@@ -14,6 +14,10 @@ tidy:
 format:
     go fmt src/*.go
 
+# run linter
+lint:
+    golangci-lint run src/...
+
 # run unit tests (TBD)
 unit-test: 
     echo "TBD" && exit 1

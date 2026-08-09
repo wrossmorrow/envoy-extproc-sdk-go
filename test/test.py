@@ -32,6 +32,12 @@ class TesterRequestBody:
 
 
 @dataclass
+class TesterRequest:
+    headers: dict[str, str]
+    body: TesterRequestBody
+
+
+@dataclass
 class TesterResponseBody:
     Datetime: str
     Server: str
@@ -45,19 +51,24 @@ class TesterResponseBody:
     Status: int
 
 
+@dataclass
+class TesterResponse:
+    headers: dict[str, str]
+    body: TesterResponseBody | None
+
+
 def asdict_not_null(obj: dataclass) -> dict[str, object]:
     return {k: v for k, v in asdict(obj).items() if v is not None}
 
 
 def make_request(
-    headers: dict[str, str],
-    body: TesterRequestBody,
-) -> tuple[int, dict[str, str],TesterResponseBody | None]:
+    request: TesterRequest,
+) -> tuple[int, TesterResponse | None]:
     
     response = requests.post(
         "http://localhost:8080/test",
-        headers=headers,
-        json=asdict_not_null(body),
+        headers=request.headers,
+        json=asdict_not_null(request.body),
     )
 
     try:
@@ -65,67 +76,91 @@ def make_request(
     except JSONDecodeError:
         response_obj = None
     
-    return response.status_code, dict(response.headers), response_obj
+    return response.status_code, TesterResponse(headers=dict(response.headers), body=response_obj)
 
 
-def show(status_code: int, headers: dict[str, str], response_obj: TesterResponseBody | None) -> None:
-    if response_obj is None:
+def show(status_code: int, response: TesterResponse) -> None:
+    headers = response.headers
+    if response.body is None:
         print(f"{status_code} {dumps(headers, indent=2)} <no response body>")
     else:
-        print(f"{status_code} {dumps(headers, indent=2)} {dumps(asdict(response_obj), indent=2)}")
+        print(f"{status_code} {dumps(headers, indent=2)} {dumps(asdict(response.body), indent=2)}")
+
+
+def check(request: TesterRequest, response: TesterResponse) -> bool:
+
+    if request.body.clear_request_body:
+        if response.body.Body:
+            return False
+        
+    if request.body.clear_response_body:
+        if response.body is not None:
+            return False
+
+    return True
 
 
 # "cases" below here
 
 
 # should just work
-results = make_request(
+request = TesterRequest(
     headers={},
     body=TesterRequestBody(),
 )
-show(*results)
+status_code, response = make_request(request)
+show(status_code, response)
+check(request, response)
 
 # should have results[2].Body == "" or None
-results = make_request(
+request = TesterRequest(
     headers={},
     body=TesterRequestBody(
         clear_request_body=True,
     ),
 )
-show(*results)
+status_code, response = make_request(request)
+show(status_code, response)
+check(request, response)
 
 # should have various complicated header outcomes in the body
-results = make_request(
+request = TesterRequest(
     headers={
         "x-overwrite": "old value",
-        "x-remove_me": "true",
+        "x-remove-me": "true",
     },
     body=TesterRequestBody(
-        append_request_headers={"x-append": "append_value"},
-        add_request_headers={"x-add": "add_value"},
+        append_request_headers={"x-append-me": "append_value"},
+        add_request_headers={"x-add-me": "add_value"},
         overwrite_request_headers={"x-overwrite": "new value"},
-        remove_request_headers=["x-remove_me"],
+        remove_request_headers=["x-remove-me"],
     ),
 )
-show(*results)
+status_code, response = make_request(request)
+show(status_code, response)
+check(request, response)
 
 # should have various complicated header outcomes in the response headers
-results = make_request(
+request = TesterRequest(
     headers={},
-    body=TesterRequestBody(
-        append_response_headers={"x-append": "append_value"},
-        add_response_headers={"x-add": "add_value"},
-        overwrite_response_headers={"content-type": "text/plain"},
+    body = TesterRequestBody(
+        append_response_headers={"x-append-me": "append_value"},
+        add_response_headers={"x-add-me": "add_value"},
+        overwrite_response_headers={"content-type": "test/plain"},
         remove_response_headers=["date"],
     ),
 )
-show(*results)
+status_code, response = make_request(request)
+show(status_code, response)
+check(request, response)
 
 # should have no response body
-results = make_request(
+request = TesterRequest(
     headers={},
     body=TesterRequestBody(
         clear_response_body=True,
     ),
 )
-show(*results)
+status_code, response = make_request(request)
+show(status_code, response)
+check(request, response)

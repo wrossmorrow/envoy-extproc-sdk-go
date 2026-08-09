@@ -64,6 +64,11 @@ func (s *timerRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, 
 	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
+func (s *timerRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *timerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil

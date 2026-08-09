@@ -13,25 +13,25 @@ type testingRequestProcessor struct {
 
 type TesterRequestBody struct {
 	// request processing options
-	AppendRequestHeaders    map[string]string `json:"append_request_headers"`
-	AddRequestHeaders       map[string]string `json:"add_request_headers"`
-	OverwriteRequestHeaders map[string]string `json:"overwrite_request_headers"`
-	RemoveRequestHeaders    []string          `json:"remove_request_headers"`
-	ClearRequestBody        bool              `json:"clear_request_body"`
-	ReplaceRequestBody      string            `json:"replace_request_body"`
+	AppendRequestHeaders    map[string]string `json:"append_request_headers" yaml:"append_request_headers"`
+	AddRequestHeaders       map[string]string `json:"add_request_headers" yaml:"add_request_headers"`
+	OverwriteRequestHeaders map[string]string `json:"overwrite_request_headers" yaml:"overwrite_request_headers"`
+	RemoveRequestHeaders    []string          `json:"remove_request_headers" yaml:"remove_request_headers"`
+	ClearRequestBody        bool              `json:"clear_request_body" yaml:"clear_request_body"`
+	ReplaceRequestBody      string            `json:"replace_request_body" yaml:"replace_request_body"`
 
 	// response processing options
-	AppendResponseHeaders    map[string]string `json:"append_response_headers"`
-	AddResponseHeaders       map[string]string `json:"add_response_headers"`
-	OverwriteResponseHeaders map[string]string `json:"overwrite_response_headers"`
-	RemoveResponseHeaders    []string          `json:"remove_response_headers"`
-	ClearResponseBody        bool              `json:"clear_response_body"`
-	ReplaceResponseBody      string            `json:"replace_response_body"`
+	AppendResponseHeaders    map[string]string `json:"append_response_headers" yaml:"append_response_headers"`
+	AddResponseHeaders       map[string]string `json:"add_response_headers" yaml:"add_response_headers"`
+	OverwriteResponseHeaders map[string]string `json:"overwrite_response_headers" yaml:"overwrite_response_headers"`
+	RemoveResponseHeaders    []string          `json:"remove_response_headers" yaml:"remove_response_headers"`
+	ClearResponseBody        bool              `json:"clear_response_body" yaml:"clear_response_body"`
+	ReplaceResponseBody      string            `json:"replace_response_body" yaml:"replace_response_body"`
 
 	// cancellation
-	CancelRequest       bool   `json:"cancel_request"`
-	CancelRequestStatus int32  `json:"cancel_request_status"`
-	CancelRequestBody   string `json:"cancel_request_body"`
+	CancelRequest       bool   `json:"cancel_request" yaml:"cancel_request"`
+	CancelRequestStatus int32  `json:"cancel_request_status" yaml:"cancel_request_status"`
+	CancelRequestBody   string `json:"cancel_request_body" yaml:"cancel_request_body"`
 }
 
 func (s *testingRequestProcessor) GetName() string {
@@ -141,4 +141,9 @@ func (s *testingRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext
 
 func (s *testingRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
 	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *testingRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing tester")
+	return nil
 }

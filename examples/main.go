@@ -28,7 +28,7 @@ var processors = map[string]processor{
 }
 
 func parseArgs(args []string) (sopts *ep.ServerOptions, popts *ep.ProcessingOptions, nonFlagArgs []string) {
-	popts = ep.NewDefaultOptions()
+	popts = ep.NewDefaultProcessingOptions()
 	sopts = ep.NewDefaultServerOptions()
 
 	rootCmd := flag.NewFlagSet("root", flag.ExitOnError)
@@ -65,5 +65,5 @@ func main() {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	ep.Serve(sopts, proc, logger)
+	ep.Serve(sopts, proc, popts, logger)
 }

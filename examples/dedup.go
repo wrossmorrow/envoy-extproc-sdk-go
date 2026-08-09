@@ -127,6 +127,11 @@ func (s *dedupRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, 
 	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
+func (s *dedupRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, extnonFlagArgsraArgs []string) error {
 	s.opts = opts
 	return nil
