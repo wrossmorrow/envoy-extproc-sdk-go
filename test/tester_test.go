@@ -64,6 +64,8 @@ func makeRequest(request *TesterRequest) (*TesterResponse, error) {
 		return nil, err
 	}
 
+	req.Header.Add("content-type", "application/json")
+	req.Header.Add("accept", "application/json")
 	for n := range request.Headers {
 		req.Header.Add(n, request.Headers[n])
 	}
@@ -160,6 +162,8 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	}
 
 	// TODO: replace request body
+
+	// TODO: response headers
 
 	if r.Body.ClearResponseBody {
 		if !s.EmptyBody {
