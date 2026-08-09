@@ -6,7 +6,7 @@ import (
 
 	"github.com/nqd/flat"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 var masked = map[string][]string{
@@ -135,6 +135,10 @@ func (s *maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 
 func (s *maskerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *maskerRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *maskerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

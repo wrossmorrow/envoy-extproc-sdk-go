@@ -1,6 +1,10 @@
 package main
 
-import ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+import (
+	"log"
+
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+)
 
 type noopRequestProcessor struct {
 	opts *ep.ProcessingOptions
@@ -36,6 +40,10 @@ func (s *noopRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body 
 
 func (s *noopRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *noopRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *noopRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

@@ -1,21 +1,21 @@
 package main
 
 import (
+	"log"
 	"regexp"
 	"strings"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
-	extproc "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 type echoRequestProcessor struct {
 	opts *ep.ProcessingOptions
 }
 
-func joinHeaders(mvhs map[string][]string) map[string]extproc.HeaderValue {
-	hs := make(map[string]extproc.HeaderValue)
+func joinHeaders(mvhs map[string][]string) map[string]ep.HeaderValue {
+	hs := make(map[string]ep.HeaderValue)
 	for n, vs := range mvhs {
-		hs[n] = extproc.HeaderValue{Value: strings.Join(vs, ",")}
+		hs[n] = ep.HeaderValue{Value: strings.Join(vs, ",")}
 	}
 	return hs
 }
@@ -77,6 +77,10 @@ func (s *echoRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body 
 
 func (s *echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *echoRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *echoRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

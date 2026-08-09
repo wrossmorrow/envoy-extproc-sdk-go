@@ -12,7 +12,7 @@ tidy:
 
 # format code
 format:
-    go fmt ./*.go
+    go fmt src/*.go
 
 # run unit tests (TBD)
 unit-test: 
@@ -32,7 +32,7 @@ run example="noop":
 
 # build binary (variadic flags supported)
 build *flags="":
-    go build {{flags}}
+    go build -o bin/extproc {{flags}} ./src
 
 # tag for a release
 tag version="":

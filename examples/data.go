@@ -1,9 +1,11 @@
 package main
 
 import (
+	"log"
+
 	"github.com/google/uuid"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 type dataRequestProcessor struct {
@@ -43,6 +45,10 @@ func (s *dataRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body 
 
 func (s *dataRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *dataRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *dataRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

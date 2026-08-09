@@ -7,9 +7,9 @@ WORKDIR /build
 
 COPY go.mod *.go ./
 COPY src/* ./src/
-COPY examples/go.mod examples/go.sum* examples/*.go ./examples/
+COPY test/go.mod test/go.sum* test/*.go ./test/
 
-WORKDIR /build/examples
+WORKDIR /build/test
 RUN go mod tidy \
     && go mod download \
     && go build -o /extproc .
@@ -24,4 +24,3 @@ EXPOSE 9090
 
 ARG EXAMPLE=noop
 ENTRYPOINT [ "/extproc" ]
-CMD [ "noop" ]

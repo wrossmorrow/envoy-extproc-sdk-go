@@ -4,8 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"hash"
+	"log"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 type digestRequestProcessor struct {
@@ -86,6 +87,10 @@ func (s *digestRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 
 func (s *digestRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *digestRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *digestRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

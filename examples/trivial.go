@@ -1,7 +1,9 @@
 package main
 
 import (
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	"log"
+
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 type trivialRequestProcessor struct {
@@ -40,6 +42,10 @@ func (s *trivialRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bo
 
 func (s *trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *trivialRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *trivialRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

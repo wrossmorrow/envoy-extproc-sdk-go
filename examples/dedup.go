@@ -3,8 +3,9 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 var cache map[string]bool
@@ -120,6 +121,10 @@ func (s *dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 
 func (s *dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *dedupRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, extnonFlagArgsraArgs []string) error {

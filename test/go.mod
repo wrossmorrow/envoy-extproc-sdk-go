@@ -1,12 +1,8 @@
-module github.com/wrossmorrow/envoy-extproc-sdk-go/examples
+module github.com/wrossmorrow/envoy-extproc-sdk-go/test
 
 go 1.25.0
 
-require (
-	github.com/google/uuid v1.6.0
-	github.com/nqd/flat v0.2.0
-	github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.23
-)
+require github.com/wrossmorrow/envoy-extproc-sdk-go v0.0.23
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -14,7 +10,6 @@ require (
 	github.com/cncf/xds/go v0.0.0-20240905190251-b4127c9b8d78 // indirect
 	github.com/envoyproxy/go-control-plane v0.13.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.1.0 // indirect
-	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect

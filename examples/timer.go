@@ -1,10 +1,11 @@
 package main
 
 import (
+	"log"
 	"strconv"
 	"time"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
 )
 
 type timerRequestProcessor struct {
@@ -57,6 +58,10 @@ func (s *timerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body
 
 func (s *timerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
 	return ctx.ContinueRequest()
+}
+
+func (s *timerRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
 func (s *timerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {

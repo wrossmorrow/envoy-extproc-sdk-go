@@ -1,0 +1,72 @@
+services:
+
+  # envoy, configured as with envoy.yaml to use extprocs
+  envoy:
+    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.35-latest}
+    ports:
+      - "8080:8000"
+      - "9901:9901"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+
+  # upstream "echo" server
+  upstream:
+    hostname: upstream
+    image: ghcr.io/wrossmorrow/simple-echo-server:${ECHO_SERVER_VERSION:-main}
+    ports:
+      - '8000:8000'
+    environment:
+      - LOG_LEVEL=info
+
+  # extprocs (stacked for local work)
+  noop:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    build:
+      context: ..
+      dockerfile: examples/Dockerfile
+    ports:
+      - '9090:9090'
+    command:
+      - noop
+  trivial:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - trivial
+    depends_on:
+      - noop
+  timer:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - timer
+    depends_on:
+      - noop
+  data:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - data
+    depends_on:
+      - noop
+  digest:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - digest
+    depends_on:
+      - noop
+  dedup:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - dedup
+    depends_on:
+      - noop
+  masker:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - masker
+    depends_on:
+      - noop
+  echo:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:examples-${IMAGE_TAG:-compose}
+    command:
+      - echo
+    depends_on:
+      - noop
