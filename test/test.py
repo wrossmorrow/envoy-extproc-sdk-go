@@ -147,7 +147,7 @@ request = TesterRequest(
         append_response_headers={"x-append-me": "append_value"},
         add_response_headers={"x-add-me": "add_value"},
         overwrite_response_headers={"content-type": "test/plain"},
-        remove_response_headers=["date"],
+        remove_response_headers=["date"],  # not sure if this works
     ),
 )
 status_code, response = make_request(request)
