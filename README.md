@@ -25,6 +25,7 @@ type GenericExtProcServer struct {
   name      string
   processor RequestProcessor
   options   *ProcessingOptions
+  ...
 }
 
 ```
@@ -39,6 +40,8 @@ type RequestProcessor interface {
   ProcessResponseTrailers(ctx *RequestContext, trailers AllHeaders) error
   ProcessResponseBody(ctx *RequestContext, body []byte) error
   ProcessRequestBody(ctx *RequestContext, body []byte) error
+	ErrorHandler(ctx *RequestContext, phase int, err error)
+	Close(gracePeriodSeconds int32) error
 }
 
 ```
@@ -60,12 +63,13 @@ type RequestContext struct {
   response    PhaseResponse
 }
 ```
-that work together to allow processing of requests and responses. An ExtProc service can be run with the `Serve` method as in
+that work together to allow processing of requests and responses. An ExtProc service can be run with the `MustServe` method as in
 ```go
 import  "github.com/wrossmorrow/envoy-extproc-sdk-go"
 
 func main() {
-    extproc.Serve(50051, myRequestProcessor{})
+    // define serverOptions, processingOptions, setup your slog.Logger...
+    extproc.MustServe(serverOptions, myRequestProcessor{}, processingOptions, logger)
 }
 ```
 or directly if you want finer grained control with code like
@@ -83,6 +87,7 @@ func main() {
     service := &extproc.GenericExtProcServer{
         name:      "trivial",
         processor: &myRequestProcessor{},
+        // options, prom metrics, logger
     }
     epb.RegisterExternalProcessorServer(s, service)
 
