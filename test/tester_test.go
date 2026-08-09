@@ -100,6 +100,8 @@ func show(t *testing.T, s *TesterResponse) {
 func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	t.Helper()
 
+	// request headers modification checks
+
 	if len(r.Body.AddRequestHeaders) > 0 {
 		for n := range r.Body.AddRequestHeaders {
 			v := r.Body.AddRequestHeaders[n]
@@ -155,6 +157,8 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 		}
 	}
 
+	// request body modification checks
+
 	if r.Body.ClearRequestBody {
 		if s.Body.Body != "" {
 			t.Errorf("Request body cleared but upstream saw a body")
@@ -163,7 +167,64 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 
 	// TODO: replace request body
 
-	// TODO: response headers
+	// response headers modification checks
+
+	if len(r.Body.AddResponseHeaders) > 0 {
+		for n := range r.Body.AddResponseHeaders {
+			v := r.Body.AddResponseHeaders[n]
+			w, ok := s.Headers[n]
+			if ok {
+				if slices.Contains(w, v) {
+					t.Errorf("Response header added but value not returned in response")
+				}
+			} else {
+				t.Errorf("Response header added but not returned in response")
+			}
+		}
+	}
+
+	if len(r.Body.AppendResponseHeaders) > 0 {
+		for n := range r.Body.AppendResponseHeaders {
+			v := r.Body.AppendResponseHeaders[n]
+			w, ok := s.Headers[n]
+			if ok {
+				if slices.Contains(w, v) {
+					t.Errorf("Response header added but value not returned in response")
+				}
+			} else {
+				t.Errorf("Response header added but not returned in response")
+			}
+		}
+	}
+
+	if len(r.Body.OverwriteResponseHeaders) > 0 {
+		for n := range r.Body.OverwriteResponseHeaders {
+			v := r.Body.OverwriteResponseHeaders[n]
+			w, ok := s.Headers[n]
+			if ok {
+				if len(w) > 1 {
+					t.Errorf("Response header overwritten but multiple values returned in response")
+				} else {
+					if w[0] != v {
+						t.Errorf("Response header overwritten but value not returned in response")
+					}
+				}
+			} else {
+				t.Errorf("Response header overwritten but not returned in response")
+			}
+		}
+	}
+
+	if len(r.Body.RemoveResponseHeaders) > 0 {
+		for _, n := range r.Body.RemoveRequestHeaders {
+			_, ok := s.Headers[n]
+			if ok {
+				t.Errorf("Response header removed but value was returned in response")
+			}
+		}
+	}
+
+	// response body modification checks
 
 	if r.Body.ClearResponseBody {
 		if !s.EmptyBody {
