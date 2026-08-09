@@ -29,9 +29,10 @@ type TesterRequestBody struct {
 	ReplaceResponseBody      string            `json:"replace_response_body" yaml:"replace_response_body"`
 
 	// cancellation
-	CancelRequest       bool   `json:"cancel_request" yaml:"cancel_request"`
-	CancelRequestStatus int32  `json:"cancel_request_status" yaml:"cancel_request_status"`
-	CancelRequestBody   string `json:"cancel_request_body" yaml:"cancel_request_body"`
+	CancelRequest        bool              `json:"cancel_request" yaml:"cancel_request"`
+	CancelRequestStatus  int32             `json:"cancel_request_status" yaml:"cancel_request_status"`
+	CancelRequestHeaders map[string]string `json:"cancel_request_headers" yaml:"cancel_request_headers"`
+	CancelRequestBody    string            `json:"cancel_request_body" yaml:"cancel_request_body"`
 }
 
 func (s *testingRequestProcessor) GetName() string {
@@ -60,7 +61,8 @@ func (s *testingRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, bod
 	ctx.SetValue("actions", actions)
 
 	if actions.CancelRequest {
-		return ctx.CancelRequest(actions.CancelRequestStatus, map[string]ep.HeaderValue{}, actions.CancelRequestBody)
+		headers := ep.BuildHeaderValuesFromMap(actions.CancelRequestHeaders)
+		return ctx.CancelRequest(actions.CancelRequestStatus, headers, actions.CancelRequestBody)
 	}
 
 	for k, v := range actions.AppendRequestHeaders {

@@ -3,10 +3,10 @@ package main
 import (
 	_ "embed"
 	"slices"
+	"strings"
 
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"testing"
@@ -40,7 +40,18 @@ type TesterResponse struct {
 	StatusCode int
 	Headers    map[string][]string
 	Body       TesterResponseBody
+	RawBody    []byte
 	EmptyBody  bool
+}
+
+func (s *TesterResponse) GetHeaderByName(key string) ([]string, bool) {
+	target := strings.ToLower(key)
+	for k, v := range s.Headers {
+		if strings.ToLower(k) == target {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 type TesterResponseBody struct {
@@ -54,6 +65,16 @@ type TesterResponseBody struct {
 	Body     string
 	Duration int
 	Status   int
+}
+
+func (r *TesterResponseBody) GetHeaderByName(key string) ([]string, bool) {
+	target := strings.ToLower(key)
+	for k, v := range r.Headers {
+		if strings.ToLower(k) == target {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 func makeRequest(request *TesterRequest) (*TesterResponse, error) {
@@ -80,34 +101,64 @@ func makeRequest(request *TesterRequest) (*TesterResponse, error) {
 	respObj.StatusCode = resp.StatusCode
 	respObj.Headers = map[string][]string(resp.Header)
 
-	if err := json.NewDecoder(resp.Body).Decode(&respObj.Body); err != nil {
-		// Empty body is ok; should we validate against Content-Length response header too?
-		if !errors.Is(err, io.EOF) {
-			return &respObj, err
-		}
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &respObj, err
+	}
+
+	respObj.RawBody = respBytes
+
+	if len(bytes.TrimSpace(respBytes)) == 0 {
 		respObj.EmptyBody = true
+		return &respObj, nil
+	}
+
+	if err := json.Unmarshal(respBytes, &respObj.Body); err != nil {
+		return &respObj, err
 	}
 
 	return &respObj, nil
 
 }
 
+func unsafePretty(obj any) []byte {
+	s, _ := json.MarshalIndent(obj, "", "  ")
+	return s
+}
+
 func show(t *testing.T, s *TesterResponse) {
 	t.Helper()
-	t.Logf("%d, %v, %v", s.StatusCode, s.Headers, s.Body)
+	t.Logf("%d, %s, %s", s.StatusCode, unsafePretty(s.Headers), unsafePretty(s.Body))
 }
 
 func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	t.Helper()
+
+	// cancelled requests checks (terminal)
+
+	if r.Body.CancelRequest {
+
+		if s.StatusCode != int(r.Body.CancelRequestStatus) {
+			t.Errorf("Cancelled request did not return the declared status")
+		}
+
+		// TODO: cancel request headers (any specified headers appear)
+
+		if string(s.RawBody) != r.Body.CancelRequestBody {
+			t.Errorf("Cancelled request did not return the stated body: \"%s\" vs \"%s\"", s.Body.Body, r.Body.CancelRequestBody)
+		}
+
+		return
+	}
 
 	// request headers modification checks
 
 	if len(r.Body.AddRequestHeaders) > 0 {
 		for n := range r.Body.AddRequestHeaders {
 			v := r.Body.AddRequestHeaders[n]
-			w, ok := s.Body.Headers[n]
+			w, ok := s.Body.GetHeaderByName(n)
 			if ok {
-				if slices.Contains(w, v) {
+				if !slices.Contains(w, v) {
 					t.Errorf("Request header added but value not returned in response")
 				}
 			} else {
@@ -119,9 +170,9 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	if len(r.Body.AppendRequestHeaders) > 0 {
 		for n := range r.Body.AppendRequestHeaders {
 			v := r.Body.AppendRequestHeaders[n]
-			w, ok := s.Body.Headers[n]
+			w, ok := s.Body.GetHeaderByName(n)
 			if ok {
-				if slices.Contains(w, v) {
+				if !slices.Contains(w, v) {
 					t.Errorf("Request header appended but value not returned in response")
 				}
 			} else {
@@ -133,7 +184,8 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	if len(r.Body.OverwriteRequestHeaders) > 0 {
 		for n := range r.Body.OverwriteRequestHeaders {
 			v := r.Body.OverwriteRequestHeaders[n]
-			w, ok := s.Body.Headers[n]
+			w, ok := s.Body.GetHeaderByName(n)
+			t.Logf("headers: %s, %s, %v", n, v, w)
 			if ok {
 				if len(w) > 1 {
 					t.Errorf("Request header overwritten but multiple values returned in response")
@@ -150,7 +202,7 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 
 	if len(r.Body.RemoveRequestHeaders) > 0 {
 		for _, n := range r.Body.RemoveRequestHeaders {
-			_, ok := s.Body.Headers[n]
+			_, ok := s.Body.GetHeaderByName(n)
 			if ok {
 				t.Errorf("Request header removed but value was returned in response")
 			}
@@ -172,9 +224,10 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	if len(r.Body.AddResponseHeaders) > 0 {
 		for n := range r.Body.AddResponseHeaders {
 			v := r.Body.AddResponseHeaders[n]
-			w, ok := s.Headers[n]
+			w, ok := s.GetHeaderByName(n)
+			t.Logf("Comparing headers: %s, %v, %v", v, w, slices.Contains(w, v))
 			if ok {
-				if slices.Contains(w, v) {
+				if !slices.Contains(w, v) {
 					t.Errorf("Response header added but value not returned in response")
 				}
 			} else {
@@ -186,9 +239,9 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	if len(r.Body.AppendResponseHeaders) > 0 {
 		for n := range r.Body.AppendResponseHeaders {
 			v := r.Body.AppendResponseHeaders[n]
-			w, ok := s.Headers[n]
+			w, ok := s.GetHeaderByName(n)
 			if ok {
-				if slices.Contains(w, v) {
+				if !slices.Contains(w, v) {
 					t.Errorf("Response header added but value not returned in response")
 				}
 			} else {
@@ -200,7 +253,7 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	if len(r.Body.OverwriteResponseHeaders) > 0 {
 		for n := range r.Body.OverwriteResponseHeaders {
 			v := r.Body.OverwriteResponseHeaders[n]
-			w, ok := s.Headers[n]
+			w, ok := s.GetHeaderByName(n)
 			if ok {
 				if len(w) > 1 {
 					t.Errorf("Response header overwritten but multiple values returned in response")
@@ -217,7 +270,7 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 
 	if len(r.Body.RemoveResponseHeaders) > 0 {
 		for _, n := range r.Body.RemoveRequestHeaders {
-			_, ok := s.Headers[n]
+			_, ok := s.GetHeaderByName(n)
 			if ok {
 				t.Errorf("Response header removed but value was returned in response")
 			}
@@ -254,6 +307,7 @@ func TestBasicRequest(t *testing.T) {
 		Headers: make(map[string]string),
 		Body:    TesterRequestBody{},
 	}
+	t.Logf("test request: %s", unsafePretty(r))
 	runTest(t, r)
 }
 
@@ -267,7 +321,9 @@ func TestRequests_Parameterized(t *testing.T) {
 
 	for _, tc := range plan.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
+			t.Logf("Test Request: %s", unsafePretty(tc.Request))
 			runTest(t, &tc.Request)
 		})
 	}
+
 }

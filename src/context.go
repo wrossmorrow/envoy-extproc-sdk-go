@@ -78,6 +78,14 @@ func (hv HeaderValue) ToEnvoyHeaderValue(name string) *corev3.HeaderValue {
 	}
 }
 
+func BuildHeaderValuesFromMap(headers map[string]string) map[string]HeaderValue {
+	h := make(map[string]HeaderValue)
+	for n := range headers {
+		h[n] = HeaderValue{RawValue: []byte(headers[n])}
+	}
+	return h
+}
+
 type RequestContext struct {
 	// parsed from header
 	Scheme    string

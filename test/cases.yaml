@@ -3,51 +3,61 @@ cases:
     description: no op run that just shouldn't fail
     request:
       headers: {}
-      request: {}
+      body: {}
   - name: clear request body
     request:
       headers: {}
-      request:
+      body:
         clear_request_body: true
   - name: clear response body
     request:
       headers: {}
-      request:
+      body:
         clear_response_body: true
   - name: add a request header
     request:
       headers:
         x-add-me: "true"
-      request: {}
+      body: {}
   - name: remove a request header
     request:
       headers:
         x-remove-me: "true"
-      request:
+      body:
         remove_request_headers:
           - x-remove-me
   - name: overwrite a request header
     request:
       headers:
         x-overwrite-me: "old value"
-      request:
+      body:
         overwrite_request_headers:
           x-overwrite-me: "new value"
   - name: add a response header
     request:
       headers: {}
-      request:
+      body:
         add_response_headers:
           x-add-me: "true"
   - name: remove a response header
     request:
       headers: {}
-      request:
+      body:
         remove_response_headers:
           - date
   - name: overwrite a response header
     request:
       headers: {}
-      request:
+      body:
         overwrite_response_headers:
           content-type: "test/plain"
+  # TODO: requires work
+  - name: cancel a request
+    request:
+      headers: {}
+      body:
+        cancel_request: true
+        cancel_request_status: 400
+        cancel_request_headers:
+          x-custom-header: "true"
+        cancel_request_body: "{\"error\":\"BadRequest\",\"detail\":\"Testing bad requests\"}"
