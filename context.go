@@ -44,7 +44,7 @@ func RequestPhaseToString(phase int) string {
 	}
 }
 
-const kContentLength = "Content-Length"
+const kContentLength = "content-length"
 
 type PhaseResponse struct {
 	headerMutation    *extprocv3.HeaderMutation    // any response
@@ -452,9 +452,16 @@ func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	return nil
 }
 
+// ReplaceBodyChunk replaces the body bytes of the current message.
+//
+// It deliberately leaves Content-Length alone: under a STREAMED body mode the
+// chunk is only part of the body, so its length is not the message length. Use
+// ReplaceBody when the filter is configured BUFFERED and this call carries the
+// whole body.
+//
+// An empty body is a no-op; use ClearBodyChunk or ClearBody to remove a body.
 func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
-	size := len(body)
-	if size == 0 {
+	if len(body) == 0 {
 		return nil
 	}
 
@@ -464,14 +471,41 @@ func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
 		},
 	}
 
-	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(size))})
+	return nil
 }
 
+// ReplaceBody replaces the whole body and updates Content-Length to match.
+//
+// Only correct when the filter is configured BUFFERED, so that a single body
+// message carries the entire body. Under STREAMED use ReplaceBodyChunk. Note
+// too that a chunked HTTP/1.1 message carries no Content-Length at all, so the
+// header written here is meaningless in that case.
+func (rc *RequestContext) ReplaceBody(body []byte) error {
+	if err := rc.ReplaceBodyChunk(body); err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(len(body)))})
+}
+
+// ClearBodyChunk removes the body bytes of the current message, leaving
+// Content-Length alone. See ReplaceBodyChunk on why.
 func (rc *RequestContext) ClearBodyChunk() error {
 	rc.response.bodyMutation = &extprocv3.BodyMutation{
 		Mutation: &extprocv3.BodyMutation_ClearBody{
 			ClearBody: true,
 		},
+	}
+	return nil
+}
+
+// ClearBody removes the body and sets Content-Length to 0. See ReplaceBody on
+// when this is the right call.
+func (rc *RequestContext) ClearBody() error {
+	if err := rc.ClearBodyChunk(); err != nil {
+		return err
 	}
 	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(0))})
 }

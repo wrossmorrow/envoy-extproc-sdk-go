@@ -104,9 +104,9 @@ func (s *testingRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, bod
 	}
 
 	if actions.ClearRequestBody {
-		ctx.ClearBodyChunk()
+		ctx.ClearBody()
 	} else if actions.ReplaceRequestBody != "" {
-		ctx.ReplaceBodyChunk([]byte(actions.ReplaceRequestBody))
+		ctx.ReplaceBody([]byte(actions.ReplaceRequestBody))
 	}
 
 	return ctx.ContinueRequest()
@@ -150,9 +150,9 @@ func (s *testingRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bo
 	if err == nil {
 		actions := val.(TesterRequestBody)
 		if actions.ClearResponseBody {
-			ctx.ClearBodyChunk()
+			ctx.ClearBody()
 		} else if actions.ReplaceResponseBody != "" {
-			ctx.ReplaceBodyChunk([]byte(actions.ReplaceResponseBody))
+			ctx.ReplaceBody([]byte(actions.ReplaceResponseBody))
 		}
 	}
 

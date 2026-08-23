@@ -95,7 +95,7 @@ func (s *maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body
 			if err != nil {
 				log.Printf("Error: %v", err)
 			} else {
-				ctx.ReplaceBodyChunk(masked)
+				ctx.ReplaceBody(masked)
 			}
 		}
 	}
@@ -126,7 +126,7 @@ func (s *maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 			if err != nil {
 				log.Printf("Error: %v", err)
 			} else {
-				ctx.ReplaceBodyChunk(masked)
+				ctx.ReplaceBody(masked)
 			}
 		}
 	}

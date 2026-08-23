@@ -98,6 +98,30 @@ opts := extproc.NewDefaultProcessingOptions()
 
 `ToEnvoyHeaderValue` now always emits `raw_value`, converting `Value` to bytes when that is the field you set. Setting *both* `Value` and `RawValue` is now invalid and reported by `IsValid()`; previously both were passed through to Envoy, _which is not permitted by the proto_.
 
+### Body mutation split from `Content-Length`
+
+`ReplaceBodyChunk` and `ClearBodyChunk` no longer touch `Content-Length`. They operate on the body of *one message*, and under a STREAMED body mode that message is only part of the body, so its length is not the message length. Setting the header there produced a wrong `Content-Length` on every streamed chunk.
+
+Two whole-body methods now carry that behaviour:
+
+```go
+// before: set Content-Length to len(body) regardless of processing mode
+ctx.ReplaceBodyChunk(body)
+ctx.ClearBodyChunk()
+
+// after: pick by what you actually configured in envoy
+ctx.ReplaceBody(body)      // BUFFERED - one message is the whole body; sets Content-Length
+ctx.ClearBody()            // BUFFERED - clears and sets Content-Length: 0
+ctx.ReplaceBodyChunk(body) // STREAMED - one chunk; leaves Content-Length alone
+ctx.ClearBodyChunk()       // STREAMED - clears this chunk only
+```
+
+If your filter config uses `request_body_mode: BUFFERED` / `response_body_mode: BUFFERED` — which the examples and the test harness do — replace `ReplaceBodyChunk` with `ReplaceBody` and `ClearBodyChunk` with `ClearBody` to keep the old behaviour. Under STREAMED, the chunk methods are what you wanted all along.
+
+Note also that a chunked HTTP/1.1 message carries no `Content-Length`, so neither whole-body method produces a meaningful header in that case.
+
+The `Content-Length` constant is also now lower cased (`content-length`), matching the header names envoy actually sends; the previous mixed-case key could fail to match the existing header when overwriting.
+
 ### Shutdown behaviour
 
 `Serve` now performs a real graceful shutdown on SIGTERM/SIGINT, fixing bugs in previous versions:
