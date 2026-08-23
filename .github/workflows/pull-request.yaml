@@ -46,6 +46,12 @@ jobs:
       - name: Run tests
         working-directory: test
         run: go test -v ./...
+      - name: Dump compose state on failure
+        if: failure()
+        run: |
+          docker compose -f test/compose.yaml ps
+          docker inspect --format '{{.Name}} {{if .State.Health}}{{.State.Health.Status}}{{range .State.Health.Log}} exit={{.ExitCode}} out={{println .Output}}{{end}}{{else}}(no healthcheck){{end}}' $(docker compose -f test/compose.yaml ps -aq)
+          docker compose -f test/compose.yaml logs --no-color --timestamps
       - name: Stop compose setup
         if: always()
         run: docker compose -f test/compose.yaml down --volumes

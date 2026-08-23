@@ -14,12 +14,6 @@ services:
         condition: service_started
       test:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9901/ready"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-      start_period: 5s
 
   # upstream "echo" server
   upstream:
@@ -29,12 +23,6 @@ services:
       - '8000:8000'
     environment:
       - LOG_LEVEL=info
-    # healthcheck:
-    #   test: ["CMD", "curl", "-fsS", "http://localhost:8000/no-extproc"]
-    #   interval: 2s
-    #   timeout: 2s
-    #   retries: 15
-    #   start_period: 3s
 
   # extprocs
   test:
