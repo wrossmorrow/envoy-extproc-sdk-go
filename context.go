@@ -203,7 +203,9 @@ func (rc *RequestContext) ContinueRequest() error {
 }
 
 func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderValue, body string) error {
-	rc.AppendHeaders(headers)
+	if err := rc.AppendHeaders(headers); err != nil {
+		return err
+	}
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = &extprocv3.ImmediateResponse{
 		Status: &typev3.HttpStatus{
@@ -236,16 +238,13 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 
 	// handle "common" responses (immediateResponse == nil and/or phase ignored)
 
-	// presume no-op if common response wrapper is not defined
-	// if rc.response.headerMutation == nil {
-	// 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
-	// }
-	if rc.response.continueRequest == nil {
-		rc.response.continueRequest = &extprocv3.CommonResponse{}
+	// Rebuild the common response unconditionally. Mutations can be added after
+	// the processor returns - the extproc name and duration headers, say - and
+	// this is what folds them in. It also defaults a processor that set nothing
+	// at all to "continue".
+	if err := rc.ContinueRequest(); err != nil {
+		return nil, err
 	}
-
-	// HACK: (?) this means any post-process modifications are added
-	rc.ContinueRequest()
 
 	switch phase {
 	case REQUEST_PHASE_REQUEST_HEADERS:
@@ -465,9 +464,7 @@ func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
 		},
 	}
 
-	rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(size))})
-
-	return nil
+	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(size))})
 }
 
 func (rc *RequestContext) ClearBodyChunk() error {
@@ -476,6 +473,5 @@ func (rc *RequestContext) ClearBodyChunk() error {
 			ClearBody: true,
 		},
 	}
-	rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(0))})
-	return nil
+	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(0))})
 }
