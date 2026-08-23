@@ -78,6 +78,20 @@ func (hv HeaderValue) ToEnvoyHeaderValue(name string) *corev3.HeaderValue {
 	}
 }
 
+func (hv HeaderValue) ToEnvoyHeaderValueOption(name string, action string) (*corev3.HeaderValueOption, error) {
+	if !hv.IsValid() {
+		return nil, fmt.Errorf("invalid header value for %s", name)
+	}
+	v, ok := corev3.HeaderValueOption_HeaderAppendAction_value[action]
+	if !ok {
+		return nil, fmt.Errorf("unknown header append action %q", action)
+	}
+	return &corev3.HeaderValueOption{
+		Header:       hv.ToEnvoyHeaderValue(name),
+		AppendAction: corev3.HeaderValueOption_HeaderAppendAction(v),
+	}, nil
+}
+
 func BuildHeaderValuesFromMap(headers map[string]string) map[string]HeaderValue {
 	h := make(map[string]HeaderValue)
 	for n := range headers {
@@ -368,18 +382,12 @@ func (rc *RequestContext) EmptyContinueResponse(phase int) (*extprocv3.Processin
 }
 
 func (rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error {
-	if !hv.IsValid() {
-		return fmt.Errorf("invalid header value")
-	}
 	hm := rc.response.headerMutation
-	aa := corev3.HeaderValueOption_HeaderAppendAction(
-		corev3.HeaderValueOption_HeaderAppendAction_value[action],
-	)
-	h := &corev3.HeaderValueOption{
-		Header:       hv.ToEnvoyHeaderValue(name),
-		AppendAction: aa,
+	ho, err := hv.ToEnvoyHeaderValueOption(name, action)
+	if err != nil {
+		return err
 	}
-	hm.SetHeaders = append(hm.SetHeaders, h)
+	hm.SetHeaders = append(hm.SetHeaders, ho)
 	return nil
 }
 
@@ -396,19 +404,15 @@ func (rc *RequestContext) OverwriteHeader(name string, hv HeaderValue) error {
 }
 
 func (rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error {
-	hm := rc.response.headerMutation
-	for n, v := range headers {
-		if !v.IsValid() {
-			return fmt.Errorf("invalid header value for %s", n)
+	hos := make([]*corev3.HeaderValueOption, 0, len(headers))
+	for n, hv := range headers {
+		ho, err := hv.ToEnvoyHeaderValueOption(n, action)
+		if err != nil {
+			return err
 		}
-		h := &corev3.HeaderValueOption{
-			Header: v.ToEnvoyHeaderValue(n),
-			AppendAction: corev3.HeaderValueOption_HeaderAppendAction(
-				corev3.HeaderValueOption_HeaderAppendAction_value[action],
-			),
-		}
-		hm.SetHeaders = append(hm.SetHeaders, h)
+		hos = append(hos, ho)
 	}
+	rc.response.headerMutation.SetHeaders = append(rc.response.headerMutation.SetHeaders, hos...)
 	return nil
 }
 
