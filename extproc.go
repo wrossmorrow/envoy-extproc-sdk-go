@@ -63,11 +63,18 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	rc := newRequestContext()
 	ctx := srv.Context()
 
+	// a stream is counted as errored at most once, however many phases failed;
+	// PhaseErrors carries the per-phase count
+	errored := false
+
 	s.metrics.TotalStreams.Inc()
 
 	s.metrics.ActiveStreams.Inc()
 	defer func() {
 		s.metrics.ActiveStreams.Dec()
+		if errored {
+			s.metrics.ErroredStreams.Inc()
+		}
 	}()
 
 	ss := time.Now()
@@ -94,6 +101,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 				s.logger.Debug("Processing stream cancelled", slog.String("error", err.Error()))
 				return nil
 			}
+			errored = true
 			s.processor.ErrorHandler(rc, REQUEST_PHASE_UNDETERMINED, err)
 			return status.Errorf(codes.Unknown, "failed to receive stream request: %v", err)
 		}
@@ -102,7 +110,8 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		// one has an idiosyncratic response. rc gets "initialized" during RequestHeaders phase processing.
 		err = rc.ResetPhase()
 		if err != nil {
-			s.metrics.ErroredStreams.Inc()
+			errored = true
+			s.metrics.PhaseErrors.Inc()
 			s.logger.Error("Phase processing error", slog.String("phase", RequestPhaseToString(REQUEST_PHASE_UNDETERMINED)), slog.String("error", err.Error()))
 			if s.options.AbortOnProcessorFailure {
 				return status.Errorf(codes.Unknown, "failed to reset extproc context: %v", err)
@@ -112,7 +121,8 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		resp, phase, err := s.processPhase(req, s.processor, rc)
 		phase_name := RequestPhaseToString(phase)
 		if err != nil {
-			s.metrics.ErroredStreams.Inc()
+			errored = true
+			s.metrics.PhaseErrors.Inc()
 			s.logger.Error("Phase processing error", slog.String("phase", phase_name), slog.String("error", err.Error()))
 			if s.options.AbortOnProcessorFailure {
 				return status.Errorf(codes.Unknown, "processor failed and abort requested: %v", err)
@@ -123,6 +133,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			s.logger.Warn("Phase processing did not define a response", slog.String("phase", RequestPhaseToString(phase)))
 			resp, err = rc.EmptyContinueResponse(phase)
 			if err != nil {
+				errored = true
 				s.logger.Error("Failed to construct empty continue response for phase", slog.String("phase", phase_name), slog.String("error", err.Error()))
 				return status.Errorf(codes.Unknown, "failed to construct empty continue response: %v", err)
 			}
@@ -130,6 +141,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 		s.logger.Debug("Sending ProcessingResponse", slog.String("phase", phase_name), slog.Any("response", resp))
 		if err := srv.Send(resp); err != nil {
+			errored = true
 			s.metrics.ResponseSendErrors.Inc()
 			s.logger.Error("Send ProcessingResponse error", slog.String("phase", phase_name), slog.String("error", err.Error()))
 			s.processor.ErrorHandler(rc, phase, err)

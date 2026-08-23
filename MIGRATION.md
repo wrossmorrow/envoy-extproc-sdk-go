@@ -141,7 +141,8 @@ Prometheus metrics are new in this release and are registered to a private regis
 | --- | --- |
 | `extproc_active_streams` | gauge, streams in flight |
 | `extproc_total_streams` | streams opened |
-| `extproc_errored_streams` | phase processing errors |
+| `extproc_errored_streams` | streams that ended in error, counted once per stream |
+| `extproc_phase_errors_total` | phase processing errors, may repeat within one stream |
 | `extproc_stream_duration_seconds` | native histogram |
 | `extproc_total_request_headers` | request header phases |
 | `extproc_request_body_messages_total` | request body messages |
@@ -155,6 +156,8 @@ Prometheus metrics are new in this release and are registered to a private regis
 | `extproc_response_send_errors` | failures sending to Envoy |
 
 Note that `*_body_messages_total` counts _messages_ while `*_body_bytes_total` counts _bytes_; they are not two views of the same quantity.
+
+Likewise `extproc_errored_streams` and `extproc_phase_errors_total` are different questions: the first is how many requests were affected, the second how many phases actually failed. With `AbortOnProcessorFailure: false` a stream continues past a failed phase, so one stream can contribute several phase errors. The ratio tells you whether you are seeing one pathological stream or a broad failure.
 
 ### Go version
 

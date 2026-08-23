@@ -9,6 +9,7 @@ import (
 type Metrics struct {
 	ActiveStreams         prometheus.Gauge
 	ErroredStreams        prometheus.Counter
+	PhaseErrors           prometheus.Counter
 	TotalStreams          prometheus.Counter
 	StreamDurationSeconds prometheus.Histogram
 	TotalRequestHeaders   prometheus.Counter
@@ -34,7 +35,13 @@ func NewEmptyMetrics() *Metrics {
 		ErroredStreams: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "extproc_errored_streams",
-				Help: "Total number of streams that errored.",
+				Help: "Total number of streams that errored, counted once per stream.",
+			},
+		),
+		PhaseErrors: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "extproc_phase_errors_total",
+				Help: "Total number of phase processing errors, which may repeat within one stream.",
 			},
 		),
 		TotalStreams: prometheus.NewCounter(

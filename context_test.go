@@ -1,8 +1,11 @@
 package extproc
 
 import (
+	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 )
@@ -188,5 +191,29 @@ func TestUpdateHeadersAppliesAllOnSuccess(t *testing.T) {
 	slices.Sort(got)
 	if !slices.Equal(got, []string{"x-a", "x-b"}) {
 		t.Errorf("SetHeaders = %v, want [x-a x-b]", got)
+	}
+}
+
+func TestMetricsCollectorsCoverEveryField(t *testing.T) {
+	m := NewEmptyMetrics()
+
+	// Collectors() reflects over the struct; a field added to Metrics but left
+	// nil, or one that stops being a Collector, silently drops off /metrics
+	want := reflect.ValueOf(m).Elem().NumField()
+	if got := len(m.Collectors()); got != want {
+		t.Errorf("Collectors() = %d, want %d (one per Metrics field)", got, want)
+	}
+
+	registry := prometheus.NewRegistry()
+	m.Register(registry)
+
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 0 {
+		// counters with no observations are not gathered; this just proves
+		// Register did not panic on a duplicate or nil collector
+		t.Logf("gathered %d metric families", len(families))
 	}
 }
