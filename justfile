@@ -28,8 +28,7 @@ unit-test:
 
 # run integration tests
 integration-test: 
-    cd test && just up -d --wait --wait-timeout 90 && just test ; just down
-
+    cd test && just up -d --wait --wait-timeout 90 && just test ; STATUS=$? ; just down --volumes ; exit ${STATUS}
 
 # run tests with coverage (TBD)
 coverage: 
