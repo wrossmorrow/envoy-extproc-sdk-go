@@ -11,7 +11,7 @@ type ServerOptions struct {
 	ExtProcPort                    int    `json:"extproc_port" yaml:"extproc_port"`
 	MetricsHTTPPort                int    `json:"metrics_http_port" yaml:"metrics_http_port"`
 	MaxConcurrentStreams           uint32 `json:"max_concurrent_streams" yaml:"max_concurrent_streams"`
-	UnreadyPropagationDelaySeconds uint32 `json:"unready_propogation_delay_seconds" yaml:"unready_propogation_delay_seconds"`
+	UnreadyPropagationDelaySeconds uint32 `json:"unready_propagation_delay_seconds" yaml:"unready_propagation_delay_seconds"`
 	TerminationGracePeriodSeconds  int32  `json:"termination_grace_period_seconds" yaml:"termination_grace_period_seconds"`
 }
 

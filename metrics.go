@@ -117,6 +117,10 @@ func (m *Metrics) Collectors() []prometheus.Collector {
 	v := reflect.ValueOf(m).Elem()
 	cs := make([]prometheus.Collector, 0, v.NumField())
 	for i := 0; i < v.NumField(); i++ {
+		// Interface() panics on unexported fields
+		if !v.Field(i).CanInterface() {
+			continue
+		}
 		if c, ok := v.Field(i).Interface().(prometheus.Collector); ok && c != nil {
 			cs = append(cs, c)
 		}

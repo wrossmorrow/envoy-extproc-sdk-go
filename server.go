@@ -1,6 +1,7 @@
 package extproc
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -28,15 +29,24 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 
 	registry := prometheus.NewRegistry()
 	metrics := NewEmptyMetrics().Register(registry)
+
+	// a dedicated mux (not http.DefaultServeMux) so that Serve can be called
+	// more than once in a process without panicking on a duplicate route
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.HandlerFor(
+		registry,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	))
+	metricsServer := &http.Server{
+		Addr:              ":" + strconv.Itoa(serverOptions.MetricsHTTPPort),
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
-		http.Handle("/metrics", promhttp.HandlerFor(
-			registry,
-			promhttp.HandlerOpts{
-				EnableOpenMetrics: true,
-			},
-		))
 		logger.Info("Started metrics HTTP server", slog.Int("port", serverOptions.MetricsHTTPPort))
-		if err := http.ListenAndServe(":"+strconv.Itoa(serverOptions.MetricsHTTPPort), nil); err != nil {
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Failed to start metrics HTTP server", slog.String("error", err.Error()))
 		}
 	}()
@@ -78,6 +88,12 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 
 	select {
 	case err := <-serveErr:
+		// Serve returns nil only after Stop/GracefulStop, neither of which can
+		// have run before a signal; guard anyway so a future change can't panic
+		if err == nil {
+			logger.Warn("gRPC server exited without error before shutdown was requested")
+			return nil
+		}
 		logger.Error("gRPC server exited unexpectedly", slog.String("error", err.Error()))
 		return err
 
@@ -108,6 +124,12 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 			<-stopped
 		}
 
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("metrics HTTP server shutdown error", slog.String("error", err.Error()))
+		}
+
 		if err := extproc.Close(serverOptions.TerminationGracePeriodSeconds); err != nil {
 			logger.Error("processor close error", slog.String("error", err.Error()))
 			return err
@@ -118,6 +140,7 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 
 func MustServe(serverOptions *ServerOptions, processor RequestProcessor, logger *slog.Logger) {
 	if err := Serve(serverOptions, processor, logger); err != nil {
+		logger.Error("extproc server failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }

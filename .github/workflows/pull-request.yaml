@@ -19,6 +19,10 @@ jobs:
           go build ./...
           (cd examples && go build ./...)
           (cd test && go build ./...)
+      # go build does not exercise Dockerfile COPY semantics; test/Dockerfile is
+      # covered by the integration job, examples/Dockerfile by nothing else
+      - name: Check example image build
+        run: docker build -f examples/Dockerfile -t extproc-examples:ci .
   vet-check:
     runs-on: ubuntu-latest
     steps:
