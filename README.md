@@ -109,14 +109,14 @@ You can add headers to a response with the convenience methods
 ```go
 (rc *RequestContext) AddHeader(name string, hv HeaderValue) error
 (rc *RequestContext) AddHeaders(headers map[string]HeaderValue) error
-(rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error
-(rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error
 (rc *RequestContext) AppendHeader(name string, hv HeaderValue) error
 (rc *RequestContext) AppendHeaders(headers map[string]HeaderValue) error
 (rc *RequestContext) OverwriteHeader(name string, hv HeaderValue) error
 (rc *RequestContext) OverwriteHeaders(headers map[string]HeaderValue) error
+(rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error
+(rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error
 ```
-where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call.
+where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call. `UpdateHeader[s]` is a generic method that should accept any action in protobuf enums wrapped or not in a specific method. Note though using this will error on invalid header update actions.
 
 Headers can be removed with the
 ```go
