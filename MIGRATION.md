@@ -105,7 +105,7 @@ opts := extproc.NewDefaultProcessingOptions()
 1. The gRPC health service starts reporting `NOT_SERVING`
 2. It waits `UnreadyPropagationDelaySeconds` (default 5) so load balancers doing active health checking observe that
 3. `GracefulStop` sends GOAWAY and waits for in-flight streams, bounded by `TerminationGracePeriodSeconds`, falling back to a hard `Stop`
-4. The processor's `Close` runs last. Note it always runs after the server has stopped, whether streams drained or were aborted so it can flush or commit to any durable data layers (if any). Up to `TerminationGracePeriodSeconds` may have already passed, so perhaps buffer further in kubernetes configurations.
+4. The processor's `Close` runs last. Note it always runs after the server has stopped, whether streams drained or were aborted so it can flush or commit to any durable data layers (if any). Worst case, shutdown takes `UnreadyPropagationDelaySeconds + TerminationGracePeriodSeconds` before `Close` is called; 15s with defaults. A Kubernetes pod's own `terminationGracePeriodSeconds` (default 30) must exceed that plus however long your `Close` needs.
 
 Two consequences: a `SIGTERM` now takes at least `UnreadyPropagationDelaySeconds` to return (set it to `0` in tests and local runs), and the health service now reports real status. Previously `Check` returned `SERVING` unconditionally, so `MarkUnready` had no observable effect.
 

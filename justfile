@@ -24,7 +24,7 @@ vet:
 
 # run unit tests (TBD)
 unit-test: 
-    go test -v
+    go test -v ./...
 
 # run integration tests (TBD)
 integration-test: 

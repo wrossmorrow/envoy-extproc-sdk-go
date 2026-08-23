@@ -104,6 +104,8 @@ type RequestContext struct {
 	response    PhaseResponse
 }
 
+// data must be allocated here, not in initReqCtx: that only runs in the
+// request headers phase, which request_header_mode: SKIP never reaches.
 func newRequestContext() *RequestContext {
 	return &RequestContext{
 		// for custom data between phases
