@@ -13,6 +13,9 @@ Several examples are provided here in the [examples](#examples), which can be re
 
 ## Usage
 
+> Upgrading from a `v0.0.x` release? See [MIGRATION.md](MIGRATION.md); this
+> release changes public API and shutdown behaviour.
+
 ### TL;DR
 
 Implement the `extproc.RequestProcessor` interface, and pass an instance to the `extproc.Serve` function.
