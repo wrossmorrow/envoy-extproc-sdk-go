@@ -2,8 +2,12 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
+	"log"
+	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"bytes"
 	"encoding/json"
@@ -15,7 +19,9 @@ import (
 )
 
 var (
-	urlPrefix  string       = "http://localhost:8080/test"
+	hostname   string       = "localhost:8080"
+	urlPrefix  string       = fmt.Sprintf("http://%s/test", hostname)
+	upstream   string       = fmt.Sprintf("http://%s/no-extproc", hostname)
 	httpClient *http.Client = &http.Client{}
 )
 
@@ -326,4 +332,22 @@ func TestRequests_Parameterized(t *testing.T) {
 		})
 	}
 
+}
+
+func TestMain(m *testing.M) {
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		resp, err := httpClient.Get(upstream)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode < 500 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			log.Fatal("gateway never became ready")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	os.Exit(m.Run())
 }

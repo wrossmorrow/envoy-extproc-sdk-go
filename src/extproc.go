@@ -72,8 +72,8 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 	ss := time.Now()
 	defer func() {
-		dur := time.Since(ss).Milliseconds()
-		s.metrics.StreamDurationSeconds.Observe(float64(dur) / 1000.0)
+		dur := time.Since(ss).Seconds()
+		s.metrics.StreamDurationSeconds.Observe(float64(dur))
 	}()
 
 	for {
@@ -196,7 +196,8 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		ts := req.RequestTrailers
 
-		trailers, err := genHeaders(ts.Trailers)
+		var trailers AllHeaders
+		trailers, err = genHeaders(ts.Trailers)
 		if err != nil {
 			s.logger.Error("Failed to generate request trailers", slog.String("error", err.Error()))
 			s.processor.ErrorHandler(rc, phase, err)
@@ -215,6 +216,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		hs := req.ResponseHeaders
 		rc.EndOfStream = hs.EndOfStream
 
+		var headers AllHeaders
 		headers, err := genHeaders(hs.Headers)
 		if err != nil {
 			s.logger.Error("Failed to generate response headers", slog.String("error", err.Error()))
@@ -258,7 +260,13 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 		ts := req.ResponseTrailers
 
-		trailers, _ := genHeaders(ts.Trailers)
+		var trailers AllHeaders
+		trailers, err = genHeaders(ts.Trailers)
+		if err != nil {
+			s.logger.Error("Failed to generate request trailers", slog.String("error", err.Error()))
+			s.processor.ErrorHandler(rc, phase, err)
+			return nil, phase, err
+		}
 
 		err = processor.ProcessResponseTrailers(rc, trailers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)

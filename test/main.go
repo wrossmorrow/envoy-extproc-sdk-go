@@ -14,18 +14,21 @@ func parseArgs(args []string) (sopts *ep.ServerOptions, popts *ep.ProcessingOpti
 
 	rootCmd := flag.NewFlagSet("root", flag.ExitOnError)
 	port := rootCmd.Int("port", 50051, "the gRPC port.")
-	sopts.ExtProcPort = *port
-	sopts.TerminationGracePeriodSeconds = 1
+	terminationGracePeriodSeconds := rootCmd.Int("terminationGracePeriodSeconds", 15, "grade period for shutdown.")
 
 	rootCmd.BoolVar(&popts.UpdateExtProcHeader, "update-extproc-header", false, "update the extProc header or not.")
 	rootCmd.BoolVar(&popts.UpdateDurationHeader, "update-duration-header", false, "update the duration header or not.")
 
 	rootCmd.Parse(args)
+
+	sopts.ExtProcPort = *port
+	sopts.TerminationGracePeriodSeconds = int32(*terminationGracePeriodSeconds)
+
 	return
 }
 
 func main() {
-	sopts, popts := parseArgs(os.Args)
+	sopts, popts := parseArgs(os.Args[1:])
 
 	proc := &testingRequestProcessor{
 		opts: popts,
@@ -35,5 +38,5 @@ func main() {
 		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}),
 	)
 
-	ep.Serve(sopts, proc, popts, logger)
+	ep.Serve(sopts, proc, logger)
 }

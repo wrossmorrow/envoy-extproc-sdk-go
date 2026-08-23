@@ -18,6 +18,10 @@ format:
 lint:
     golangci-lint run src/...
 
+# run vetter
+vet:
+    go vet -vettool=$(which shadow) ./...
+
 # run unit tests (TBD)
 unit-test: 
     echo "TBD" && exit 1
@@ -36,7 +40,7 @@ run example="noop":
 
 # build binary (variadic flags supported)
 build *flags="":
-    go build -o bin/extproc {{flags}} ./src
+    go build -o bin/extproc {{flags}} ./...
 
 # tag for a release
 tag version="":

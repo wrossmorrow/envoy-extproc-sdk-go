@@ -1,6 +1,10 @@
 package extproc
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"reflect"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 type Metrics struct {
 	ActiveStreams         prometheus.Gauge
@@ -54,7 +58,7 @@ func NewEmptyMetrics() *Metrics {
 		),
 		TotalRequestBody: prometheus.NewCounter(
 			prometheus.CounterOpts{
-				Name: "extproc_total_request_body",
+				Name: "extproc_request_body_bytes_total",
 				Help: "Total number of request bodies processed.",
 			},
 		),
@@ -90,13 +94,13 @@ func NewEmptyMetrics() *Metrics {
 		),
 		BodyBytesReceived: prometheus.NewCounter(
 			prometheus.CounterOpts{
-				Name: "extproc_body_bytes_received",
+				Name: "extproc_body_bytes_total",
 				Help: "Total number of body bytes received.",
 			},
 		),
 		BodyBytesReturned: prometheus.NewCounter(
 			prometheus.CounterOpts{
-				Name: "extproc_body_bytes_returned",
+				Name: "extproc_response_body_bytes_total",
 				Help: "Total number of body bytes returned.",
 			},
 		),
@@ -109,18 +113,20 @@ func NewEmptyMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) Register() *Metrics {
-	prometheus.MustRegister(m.ActiveStreams)
-	prometheus.MustRegister(m.ErroredStreams)
-	prometheus.MustRegister(m.TotalStreams)
-	prometheus.MustRegister(m.StreamDurationSeconds)
-	prometheus.MustRegister(m.TotalRequestHeaders)
-	prometheus.MustRegister(m.TotalRequestBody)
-	prometheus.MustRegister(m.TotalRequestTrailers)
-	prometheus.MustRegister(m.TotalResponseHeaders)
-	prometheus.MustRegister(m.TotalResponseBody)
-	prometheus.MustRegister(m.TotalResponseTrailers)
-	prometheus.MustRegister(m.TotalEmptyResponses)
-	prometheus.MustRegister(m.ResponseSendErrors)
+func (m *Metrics) Collectors() []prometheus.Collector {
+	v := reflect.ValueOf(m).Elem()
+	cs := make([]prometheus.Collector, 0, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		if c, ok := v.Field(i).Interface().(prometheus.Collector); ok && c != nil {
+			cs = append(cs, c)
+		}
+	}
+	return cs
+}
+
+func (m *Metrics) Register(r prometheus.Registerer) *Metrics {
+	for _, c := range m.Collectors() {
+		r.MustRegister(c)
+	}
 	return m
 }
