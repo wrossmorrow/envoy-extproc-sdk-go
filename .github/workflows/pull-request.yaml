@@ -17,8 +17,8 @@ jobs:
       - name: Check build(s)
         run: |
           go build ./...
-          cd examples && go build ./...
-          cd test && go build ./...
+          (cd examples && go build ./...)
+          (cd test && go build ./...)
   vet-check:
     runs-on: ubuntu-latest
     steps:
