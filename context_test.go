@@ -104,7 +104,7 @@ func TestUpdateHeaderRejectsUnknownAction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// an unknown name used to map to 0, silently becoming APPEND_IF_EXISTS_OR_ADD
+	// an unknown name used to map to 0, silently becoming APPEND_IF_EXISTS_OR_ADD (note misspelled here)
 	err := rc.UpdateHeader("x-a", HeaderValue{RawValue: []byte("1")}, "APPEND_IF_EXITS_OR_ADD")
 	if err == nil {
 		t.Fatal("expected an error for a misspelled append action")
@@ -130,6 +130,20 @@ func TestUpdateHeaderAppliesNamedAction(t *testing.T) {
 	}
 	if got := hs[0].AppendAction; got != corev3.HeaderValueOption_ADD_IF_ABSENT {
 		t.Errorf("AppendAction = %v, want ADD_IF_ABSENT", got)
+	}
+
+	if err := rc.UpdateHeader("x-b", HeaderValue{RawValue: []byte("1")}, "OVERWRITE_IF_EXISTS"); err != nil {
+		t.Fatal(err)
+	}
+
+	// OVERWRITE_IF_EXISTS has no convenience wrapper as of writing; this pins that
+	// UpdateHeader accepts any action name the proto defines, not just the three we wrap
+	hs = rc.response.headerMutation.SetHeaders
+	if len(hs) != 2 {
+		t.Fatalf("SetHeaders = %d entries, want 2", len(hs))
+	}
+	if got := hs[1].AppendAction; got != corev3.HeaderValueOption_OVERWRITE_IF_EXISTS {
+		t.Errorf("AppendAction = %v, want OVERWRITE_IF_EXISTS", got)
 	}
 }
 
