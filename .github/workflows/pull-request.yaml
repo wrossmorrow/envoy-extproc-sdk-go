@@ -14,8 +14,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-      - name: Check build
-        run: go build -o bin/extproc ./...
+      - name: Check build(s)
+        run: |
+          go build ./...
+          cd examples && go build ./...
+          cd test && go build ./...
   vet-check:
     runs-on: ubuntu-latest
     steps:
@@ -25,7 +28,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-      - name: Check build
+      - name: Vet the main library
         run: |
           go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@latest
           go vet -vettool=$(go env GOPATH)/bin/shadow ./...

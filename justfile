@@ -40,7 +40,7 @@ run example="noop":
 
 # build binary (variadic flags supported)
 build *flags="":
-    go build -o bin/extproc {{flags}} ./...
+    go build {{flags}} ./...
 
 # tag for a release
 tag version="":

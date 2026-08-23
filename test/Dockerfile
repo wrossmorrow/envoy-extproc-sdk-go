@@ -14,7 +14,6 @@ RUN go mod tidy \
     && go mod download \
     && go build -o /extproc .
 
-# pin it; @latest makes your builds non-reproducible
 RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.39
 
 FROM golang:${GO_VERSION_TAG}

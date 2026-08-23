@@ -38,7 +38,7 @@ static_resources:
                           cluster_name: test
                         timeout: 30s
                       failure_mode_allow: false
-                      message_timeout: 0.2s
+                      message_timeout: 2s # long for testing
                       processing_mode:
                         request_header_mode: SEND
                         response_header_mode: SEND
