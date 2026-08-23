@@ -60,7 +60,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 	s.logger.Debug("Starting request stream", slog.String("name", s.name))
 
-	rc := &RequestContext{}
+	rc := newRequestContext()
 	ctx := srv.Context()
 
 	s.metrics.TotalStreams.Inc()

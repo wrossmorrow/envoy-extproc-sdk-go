@@ -104,6 +104,13 @@ type RequestContext struct {
 	response    PhaseResponse
 }
 
+func newRequestContext() *RequestContext {
+	return &RequestContext{
+		// for custom data between phases
+		data: make(map[string]any),
+	}
+}
+
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	rc.Started = time.Now()
 	rc.Duration = 0
@@ -119,9 +126,6 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 		}
 		return val
 	}
-
-	// for custom data between phases
-	rc.data = make(map[string]any)
 
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
