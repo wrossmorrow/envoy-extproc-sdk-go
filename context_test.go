@@ -1,6 +1,11 @@
 package extproc
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+)
 
 func TestRequestContextSetValueWithoutHeaders(t *testing.T) {
 	rc := newRequestContext() // as when request_header_mode: SKIP
@@ -82,5 +87,92 @@ func TestClearBodySetsContentLengthZero(t *testing.T) {
 	}
 	if got := contentLengthMutations(rc); len(got) != 1 || got[0] != "0" {
 		t.Errorf("content-length mutations = %v, want [0]", got)
+	}
+}
+
+func setHeaderNames(rc *RequestContext) []string {
+	var out []string
+	for _, h := range rc.response.headerMutation.SetHeaders {
+		out = append(out, h.Header.Key)
+	}
+	return out
+}
+
+func TestUpdateHeaderRejectsUnknownAction(t *testing.T) {
+	rc := newRequestContext()
+	if err := rc.ResetPhase(); err != nil {
+		t.Fatal(err)
+	}
+
+	// an unknown name used to map to 0, silently becoming APPEND_IF_EXISTS_OR_ADD
+	err := rc.UpdateHeader("x-a", HeaderValue{RawValue: []byte("1")}, "APPEND_IF_EXITS_OR_ADD")
+	if err == nil {
+		t.Fatal("expected an error for a misspelled append action")
+	}
+	if got := setHeaderNames(rc); len(got) != 0 {
+		t.Errorf("header was set despite the bad action: %v", got)
+	}
+}
+
+func TestUpdateHeaderAppliesNamedAction(t *testing.T) {
+	rc := newRequestContext()
+	if err := rc.ResetPhase(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rc.AddHeader("x-a", HeaderValue{RawValue: []byte("1")}); err != nil {
+		t.Fatal(err)
+	}
+
+	hs := rc.response.headerMutation.SetHeaders
+	if len(hs) != 1 {
+		t.Fatalf("SetHeaders = %d entries, want 1", len(hs))
+	}
+	if got := hs[0].AppendAction; got != corev3.HeaderValueOption_ADD_IF_ABSENT {
+		t.Errorf("AppendAction = %v, want ADD_IF_ABSENT", got)
+	}
+}
+
+func TestUpdateHeadersIsAllOrNothing(t *testing.T) {
+	rc := newRequestContext()
+	if err := rc.ResetPhase(); err != nil {
+		t.Fatal(err)
+	}
+
+	// map iteration order is randomized, so an implementation that appends as it
+	// goes leaves a different partial mutation behind on different runs
+	headers := map[string]HeaderValue{
+		"x-a": {RawValue: []byte("1")},
+		"x-b": {Value: "2", RawValue: []byte("2")}, // invalid: both fields set
+		"x-c": {RawValue: []byte("3")},
+	}
+
+	if err := rc.AddHeaders(headers); err == nil {
+		t.Fatal("expected an error for the invalid header value")
+	}
+	if got := setHeaderNames(rc); len(got) != 0 {
+		t.Errorf("partial mutation left behind: %v", got)
+	}
+}
+
+func TestUpdateHeadersAppliesAllOnSuccess(t *testing.T) {
+	rc := newRequestContext()
+	if err := rc.ResetPhase(); err != nil {
+		t.Fatal(err)
+	}
+
+	headers := map[string]HeaderValue{
+		"x-a": {RawValue: []byte("1")},
+		"x-b": {RawValue: []byte("2")},
+	}
+
+	if err := rc.OverwriteHeaders(headers); err != nil {
+		t.Fatal(err)
+	}
+
+	got := setHeaderNames(rc)
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"x-a", "x-b"}) {
+		t.Errorf("SetHeaders = %v, want [x-a x-b]", got)
 	}
 }
