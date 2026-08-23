@@ -24,7 +24,7 @@ vet:
 
 # run unit tests (TBD)
 unit-test: 
-    echo "TBD" && exit 1
+    go test -v
 
 # run integration tests (TBD)
 integration-test: 
