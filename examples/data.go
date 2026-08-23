@@ -60,5 +60,3 @@ func (s *dataRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []st
 	s.opts = opts
 	return nil
 }
-
-func (s *dataRequestProcessor) Finish() {}

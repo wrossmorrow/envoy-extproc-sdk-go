@@ -102,5 +102,3 @@ func (s *digestRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []
 	s.opts = opts
 	return nil
 }
-
-func (s *digestRequestProcessor) Finish() {}

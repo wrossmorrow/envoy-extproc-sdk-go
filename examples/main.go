@@ -11,7 +11,6 @@ import (
 
 type processor interface {
 	Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error
-	Finish()
 
 	ep.RequestProcessor
 }
@@ -61,7 +60,6 @@ func main() {
 	if err := proc.Init(popts, nonFlagArgs); err != nil {
 		log.Fatalf("Initialize the processor is failed: %v.", err.Error())
 	}
-	defer proc.Finish()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 

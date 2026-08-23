@@ -55,5 +55,3 @@ func (s *noopRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []st
 	s.opts = opts
 	return nil
 }
-
-func (s *noopRequestProcessor) Finish() {}

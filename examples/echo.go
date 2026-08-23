@@ -92,5 +92,3 @@ func (s *echoRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []st
 	s.opts = opts
 	return nil
 }
-
-func (s *echoRequestProcessor) Finish() {}

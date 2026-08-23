@@ -57,5 +57,3 @@ func (s *trivialRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs [
 	s.opts = opts
 	return nil
 }
-
-func (s *trivialRequestProcessor) Finish() {}

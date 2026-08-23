@@ -132,9 +132,7 @@ func (s *dedupRequestProcessor) Close(gracePeriodSeconds int32) error {
 	return nil
 }
 
-func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, extnonFlagArgsraArgs []string) error {
+func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil
 }
-
-func (s *dedupRequestProcessor) Finish() {}

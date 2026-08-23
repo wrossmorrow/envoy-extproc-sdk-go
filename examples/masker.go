@@ -150,5 +150,3 @@ func (s *maskerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []
 	s.opts = opts
 	return nil
 }
-
-func (s *maskerRequestProcessor) Finish() {}

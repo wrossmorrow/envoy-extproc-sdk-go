@@ -73,5 +73,3 @@ func (s *timerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []s
 	s.opts = opts
 	return nil
 }
-
-func (s *timerRequestProcessor) Finish() {}
