@@ -22,13 +22,14 @@ lint:
 vet:
     go vet -vettool=$(go env GOPATH)/bin/shadow ./...
 
-# run unit tests (TBD)
+# run unit tests
 unit-test: 
     go test -v ./...
 
-# run integration tests (TBD)
+# run integration tests
 integration-test: 
-    echo "TBD" && exit 1
+    cd test && just up -d --wait --wait-timeout 90 && just test ; just down
+
 
 # run tests with coverage (TBD)
 coverage: 
