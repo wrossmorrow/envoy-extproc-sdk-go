@@ -15,6 +15,7 @@ func parseArgs(args []string) (sopts *ep.ServerOptions, popts *ep.ProcessingOpti
 	rootCmd := flag.NewFlagSet("root", flag.ExitOnError)
 	port := rootCmd.Int("port", 50051, "the gRPC port.")
 	terminationGracePeriodSeconds := rootCmd.Int("terminationGracePeriodSeconds", 15, "grade period for shutdown.")
+	unreadyPropagationDelaySeconds := rootCmd.Int("unreadyPropagationDelaySeconds", 0, "drain for active health checks.")
 
 	rootCmd.BoolVar(&popts.UpdateExtProcHeader, "update-extproc-header", false, "update the extProc header or not.")
 	rootCmd.BoolVar(&popts.UpdateDurationHeader, "update-duration-header", false, "update the duration header or not.")
@@ -23,6 +24,7 @@ func parseArgs(args []string) (sopts *ep.ServerOptions, popts *ep.ProcessingOpti
 
 	sopts.ExtProcPort = *port
 	sopts.TerminationGracePeriodSeconds = int32(*terminationGracePeriodSeconds)
+	sopts.UnreadyPropagationDelaySeconds = uint32(*unreadyPropagationDelaySeconds)
 
 	return
 }
