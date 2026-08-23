@@ -2,19 +2,13 @@
 
 ## v0.1.0 (from v0.0.x)
 
-This release changes public API in several places and changes runtime behaviour
-in a few more. Read the "Header representation" and "RequestProcessor" sections
-first; those affect every consumer.
+This release changes public API in several places and changes runtime behaviour in a few more. Read the "Header representation" and "RequestProcessor" sections first; those affect every consumer.
 
 ### Envoy no longer sends `HeaderValue.value`
 
-Current Envoy releases populate `HeaderValue.raw_value` for ext_proc and leave
-`value` empty. This is a change in Envoy, not in this SDK, but it invalidated
-the SDK's original header handling: code that keyed off which proto field was
-set saw an empty result on every request.
+More recent Envoy releases populate `HeaderValue.raw_value` for ext_proc and leave `value` empty. This is a change in Envoy, not in this SDK, but it invalidated the SDK's original header handling code that keyed off which proto field was set and could see an empty result on every request.
 
-If you are upgrading from an older Envoy at the same time, this is the change
-most likely to alter what your processors observe.
+If you are upgrading from an older Envoy at the same time, this is the change most likely to alter what your implementations observe.
 
 ### Header representation (`AllHeaders`)
 
@@ -36,17 +30,11 @@ type AllHeaders struct {
 
 Three behaviour changes come with it:
 
-- **Values are no longer split on commas.** Previously every value was passed
-  through `strings.Split(v, ",")`, which corrupted `Date`, `User-Agent`,
-  `Cookie`, and any value containing a quoted comma. Use `SplitList(name)` where
-  a comma delimited list is genuinely expected (`Accept`, `Cache-Control`,
-  `Vary`).
-- **Repeated headers are preserved.** Previously a repeated header overwrote the
-  earlier value; `Set-Cookie` lost all but the last. Both maps now hold one entry
-  per occurrence, in wire order.
-- **Keys are lower cased on ingest**, matching what Envoy sends.
+- **Values are no longer split on commas.** Previously every value was passed through `strings.Split(v, ",")`, which unintentionally corrupted `Date`, `User-Agent`, `Cookie`, and any value containing a quoted comma. Use `SplitList(name)` where a comma delimited list is genuinely expected (`Accept`, `Cache-Control`, `Vary`).
+- **Repeated headers are preserved.** Previously a repeated header overwrote the earlier value; `Set-Cookie` lost all but the last. Both maps now hold one entry per occurrence, in wire order.
+- **Keys are lower cased on ingest**, matching what Envoy sends. (Consistency is the reason we're not just using `net/http` `Header`s which canonicalize the names.)
 
-Prefer the new accessors over indexing the maps; they are case insensitive:
+Prefer the new accessors over indexing the maps. They are case insensitive:
 
 ```go
 v, ok := headers.Get("content-type")   // first value
@@ -58,7 +46,7 @@ parts := headers.SplitList("accept")   // opt-in comma splitting
 
 ### `RequestProcessor` gained two methods
 
-Every implementation must add these:
+Every implementation must now add these methods, even if trivial:
 
 ```go
 // called when the SDK hits an error during request processing;
@@ -69,8 +57,7 @@ ErrorHandler(ctx *RequestContext, phase int, err error)
 Close(gracePeriodSeconds int32) error
 ```
 
-A no-op `Close` returning `nil` and an `ErrorHandler` that logs are adequate
-starting points.
+A no-op `Close` returning `nil` and an `ErrorHandler` that logs are starting points or maybe even enough. But if you (say) write to durable data layers you might wants commits or other flushes in `Close`. 
 
 ### `Serve` and `MustServe`
 
@@ -83,14 +70,11 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 func MustServe(serverOptions *ServerOptions, processor RequestProcessor, logger *slog.Logger)
 ```
 
-`Serve` now returns an error, takes a `*ServerOptions` (see below) instead of a
-bare port, and takes an `*slog.Logger`. `ProcessingOptions` is *not* a
-parameter: it is read from the processor's `GetOptions()` method.
+`Serve` now returns an error, takes a `*ServerOptions` (see below) instead of a bare port, and takes an `*slog.Logger`. `ProcessingOptions` is *not* a parameter: it is read from the processor's `GetOptions()` method.
 
 ### `ServerOptions` is new; `ProcessingOptions` changed
 
-Server level settings moved out of `ProcessingOptions` into a new
-`ServerOptions` type, constructible from defaults, JSON, or YAML:
+Server level settings moved out of `ProcessingOptions` into a new `ServerOptions` type, constructible from defaults, JSON, or YAML:
 
 ```go
 sopts := extproc.NewDefaultServerOptions()
@@ -101,9 +85,7 @@ sopts := extproc.NewDefaultServerOptions()
 // TerminationGracePeriodSeconds  10
 ```
 
-`ProcessingOptions` dropped `LogPhases` and `LogStream` — logging is now done
-through the `*slog.Logger` passed to `Serve`, at whatever level you configure —
-and gained `AbortOnProcessorFailure`. The constructor was renamed:
+`ProcessingOptions` dropped `LogPhases` and `LogStream` — logging is now done through the `*slog.Logger` passed to `Serve`, at whatever level you configure, and gained `AbortOnProcessorFailure`. The constructor was renamed to match existence of two options types:
 
 ```go
 // before
@@ -114,30 +96,22 @@ opts := extproc.NewDefaultProcessingOptions()
 
 ### `HeaderValue` sends `raw_value`
 
-`ToEnvoyHeaderValue` now always emits `raw_value`, converting `Value` to bytes
-when that is the field you set. Setting *both* `Value` and `RawValue` is now
-invalid and reported by `IsValid()`; previously both were passed through to
-Envoy, which is not permitted by the proto.
+`ToEnvoyHeaderValue` now always emits `raw_value`, converting `Value` to bytes when that is the field you set. Setting *both* `Value` and `RawValue` is now invalid and reported by `IsValid()`; previously both were passed through to Envoy, _which is not permitted by the proto_.
 
 ### Shutdown behaviour
 
-`Serve` now performs a real graceful shutdown on SIGTERM/SIGINT:
+`Serve` now performs a real graceful shutdown on SIGTERM/SIGINT, fixing bugs in previous versions:
 
 1. the gRPC health service starts reporting `NOT_SERVING`
-2. it waits `UnreadyPropagationDelaySeconds` (default 5) so load balancers observe that
-3. `GracefulStop` sends GOAWAY and waits for in-flight streams, bounded by
-   `TerminationGracePeriodSeconds`, falling back to a hard `Stop`
-4. the processor's `Close` runs last
+2. it waits `UnreadyPropagationDelaySeconds` (default 5) so load balancers doing active health checking observe that
+3. `GracefulStop` sends GOAWAY and waits for in-flight streams, bounded by `TerminationGracePeriodSeconds`, falling back to a hard `Stop`
+4. the processor's own `Close` runs last, if the grace period allows it (unfortunately) with a drained server.
 
-Two consequences: a `SIGTERM` now takes at least `UnreadyPropagationDelaySeconds`
-to return (set it to `0` in tests and local runs), and the health service now
-reports real status — previously `Check` returned `SERVING` unconditionally, so
-`MarkUnready` had no observable effect.
+Two consequences: a `SIGTERM` now takes at least `UnreadyPropagationDelaySeconds` to return (set it to `0` in tests and local runs), and the health service now reports real status. Previously `Check` returned `SERVING` unconditionally, so `MarkUnready` had no observable effect.
 
 ### Metrics
 
-Prometheus metrics are new in this release and are registered to a private
-registry rather than the default one, served on `MetricsHTTPPort`:
+Prometheus metrics are new in this release and are registered to a private registry, served on `MetricsHTTPPort`:
 
 | Metric | Meaning |
 | --- | --- |
@@ -156,8 +130,7 @@ registry rather than the default one, served on `MetricsHTTPPort`:
 | `extproc_empty_responses` | phases that produced no response |
 | `extproc_response_send_errors` | failures sending to Envoy |
 
-Note that `*_body_messages_total` counts messages while `*_body_bytes_total`
-counts bytes; they are not two views of the same quantity.
+Note that `*_body_messages_total` counts _messages_ while `*_body_bytes_total` counts _bytes_; they are not two views of the same quantity.
 
 ### Go version
 

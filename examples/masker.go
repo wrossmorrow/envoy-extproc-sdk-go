@@ -24,7 +24,7 @@ type maskerRequestProcessor struct {
 
 func isMaybeJSON(headers ep.AllHeaders) bool {
 	for _, t := range headers.Values("content-type") {
-		// media type may carry parameters, eg "application/json; charset=utf-8"
+		// NOTE: media type may carry parameters, eg "application/json; charset=utf-8"
 		if strings.HasPrefix(strings.TrimSpace(strings.ToLower(t)), "application/json") {
 			return true
 		}

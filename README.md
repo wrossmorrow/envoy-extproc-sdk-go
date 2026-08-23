@@ -76,30 +76,7 @@ func main() {
     extproc.MustServe(serverOptions, myRequestProcessor{}, logger)
 }
 ```
-or directly if you want finer grained control with code like
-```go
-import (
-    ...
-    "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-    epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-)
-
-func main() {
-
-    ...
-
-    service := &extproc.GenericExtProcServer{
-        name:      "trivial",
-        processor: &myRequestProcessor{},
-        // options, prom metrics, logger
-    }
-    epb.RegisterExternalProcessorServer(s, service)
-
-    ...
-
-}
-```
-for `myRequestProcessor` implementing `RequestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
+Internally the `GenericExtProcServer` constructed in `[Must]Serve` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
 
 ### Context Data
 

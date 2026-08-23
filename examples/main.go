@@ -65,5 +65,5 @@ func main() {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	ep.Serve(sopts, proc, logger)
+	ep.MustServe(sopts, proc, logger)
 }
