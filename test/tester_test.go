@@ -334,6 +334,50 @@ func TestRequests_Parameterized(t *testing.T) {
 
 }
 
+// TestHeaderRepresentation is a diagnostic, not an assertion of intended
+// behaviour. It reports how the SDK represented the inbound request headers so
+// we can decide what AllHeaders should look like. It fails only if the probes
+// did not make it through at all.
+//
+// Read the logged output with: go test -run TestHeaderRepresentation -v ./...
+func TestHeaderRepresentation(t *testing.T) {
+	req := &TesterRequest{
+		Headers: map[string]string{
+			probeHeader:    "a,b,c",
+			"x-probe-date": "Mon, 22 Aug 2026 17:34:26 GMT",
+		},
+	}
+
+	resp, err := makeRequest(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+
+	probes := []string{
+		"x-probe-str-count",
+		"x-probe-raw-count",
+		"x-probe-str-keys",
+		"x-probe-raw-keys",
+		"x-probe-str-value",
+		"x-probe-raw-value",
+	}
+
+	seen := 0
+	for _, n := range probes {
+		v, ok := resp.Body.GetHeaderByName(n)
+		if !ok {
+			t.Logf("%-20s (absent)", n)
+			continue
+		}
+		seen++
+		t.Logf("%-20s %v", n, v)
+	}
+
+	if seen == 0 {
+		t.Fatalf("no probe headers were reflected; is the extproc in the path? body: %s", resp.RawBody)
+	}
+}
+
 func TestMain(m *testing.M) {
 	deadline := time.Now().Add(60 * time.Second)
 	for {

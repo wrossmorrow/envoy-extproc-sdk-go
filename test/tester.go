@@ -3,9 +3,49 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"sort"
+	"strconv"
+	"strings"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
+
+// probeHeader is a request header the harness sends with a comma in its value,
+// so we can observe how genHeaders represents it. See TestHeaderRepresentation.
+const probeHeader = "x-probe-list"
+
+func sortedKeys[V any](m map[string]V) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
+// addHeaderRepresentationProbes reports, via request headers the upstream echo
+// server reflects back, how the SDK parsed the inbound headers. This answers two
+// questions we cannot answer by reading Envoy's source: whether Envoy populates
+// HeaderValue.value or HeaderValue.raw_value for ext_proc, and what the comma
+// splitting in genHeaders does to a real value.
+//
+// Diagnostic only - remove once AllHeaders is settled.
+func addHeaderRepresentationProbes(ctx *ep.RequestContext, headers ep.AllHeaders) {
+	str := func(s string) ep.HeaderValue { return ep.HeaderValue{RawValue: []byte(s)} }
+
+	ctx.AddHeader("x-probe-str-count", str(strconv.Itoa(len(headers.Headers))))
+	ctx.AddHeader("x-probe-raw-count", str(strconv.Itoa(len(headers.RawHeaders))))
+	ctx.AddHeader("x-probe-str-keys", str(strings.Join(sortedKeys(headers.Headers), " ")))
+	ctx.AddHeader("x-probe-raw-keys", str(strings.Join(sortedKeys(headers.RawHeaders), " ")))
+
+	if vs, ok := headers.Headers[probeHeader]; ok {
+		// "|" so we can see element boundaries produced by the comma split
+		ctx.AddHeader("x-probe-str-value", str(strings.Join(vs, "|")))
+	}
+	if rv, ok := headers.RawHeaders[probeHeader]; ok {
+		ctx.AddHeader("x-probe-raw-value", str(string(rv)))
+	}
+}
 
 type testingRequestProcessor struct {
 	opts *ep.ProcessingOptions
@@ -44,6 +84,7 @@ func (s *testingRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s *testingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
+	addHeaderRepresentationProbes(ctx, headers)
 	return ctx.ContinueRequest()
 }
 
