@@ -2,7 +2,7 @@
 
 ## v0.1.0 (from v0.0.x)
 
-This release changes public API in several places and changes runtime behaviour in a few more. Read the "Header representation" and "RequestProcessor" sections first; those affect every consumer.
+This release changes public API in several places and changes runtime behavior in a few more. Read the "Header representation" and "RequestProcessor" sections first; those affect every consumer.
 
 ### Envoy no longer sends `HeaderValue.value`
 
@@ -28,7 +28,7 @@ type AllHeaders struct {
 }
 ```
 
-Three behaviour changes come with it:
+Three behavior changes come with it:
 
 - **Values are no longer split on commas.** Previously every value was passed through `strings.Split(v, ",")`, which unintentionally corrupted `Date`, `User-Agent`, `Cookie`, and any value containing a quoted comma. Use `SplitList(name)` where a comma delimited list is genuinely expected (`Accept`, `Cache-Control`, `Vary`).
 - **Repeated headers are preserved.** Previously a repeated header overwrote the earlier value; `Set-Cookie` lost all but the last. Both maps now hold one entry per occurrence, in wire order.
@@ -102,7 +102,7 @@ opts := extproc.NewDefaultProcessingOptions()
 
 `ReplaceBodyChunk` and `ClearBodyChunk` no longer touch `Content-Length`. They operate on the body of *one message*, and under a STREAMED body mode that message is only part of the body, so its length is not the message length. Setting the header there produced a wrong `Content-Length` on every streamed chunk.
 
-Two whole-body methods now carry that behaviour:
+Two whole-body methods now carry that behavior:
 
 ```go
 // before: set Content-Length to len(body) regardless of processing mode
@@ -116,13 +116,13 @@ ctx.ReplaceBodyChunk(body) // STREAMED - one chunk; leaves Content-Length alone
 ctx.ClearBodyChunk()       // STREAMED - clears this chunk only
 ```
 
-If your filter config uses `request_body_mode: BUFFERED` / `response_body_mode: BUFFERED` — which the examples and the test harness do — replace `ReplaceBodyChunk` with `ReplaceBody` and `ClearBodyChunk` with `ClearBody` to keep the old behaviour. Under STREAMED, the chunk methods are what you wanted all along.
+If your filter config uses `request_body_mode: BUFFERED` / `response_body_mode: BUFFERED` — which the examples and the test harness do — replace `ReplaceBodyChunk` with `ReplaceBody` and `ClearBodyChunk` with `ClearBody` to keep the old behavior. Under STREAMED, the chunk methods are what you wanted all along.
 
 Note also that a chunked HTTP/1.1 message carries no `Content-Length`, so neither whole-body method produces a meaningful header in that case.
 
 The `Content-Length` constant is also now lower cased (`content-length`), matching the header names envoy actually sends; the previous mixed-case key could fail to match the existing header when overwriting.
 
-### Shutdown behaviour
+### Shutdown behavior
 
 `Serve` now performs a real graceful shutdown on SIGTERM/SIGINT, fixing bugs in previous versions:
 
