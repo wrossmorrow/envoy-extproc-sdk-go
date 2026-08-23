@@ -16,11 +16,10 @@ jobs:
           go-version: '1.25'
       - name: Check build(s)
         run: |
-          go build ./...
-          (cd examples && go build ./...)
-          (cd test && go build ./...)
-      # go build does not exercise Dockerfile COPY semantics; test/Dockerfile is
-      # covered by the integration job, examples/Dockerfile by nothing else
+          go build -o /dev/null ./...
+          (cd examples && go build -o /dev/null ./...)
+          (cd test && go build -o /dev/null ./...)
+      # test/Dockerfile is covered by the integration job, but o/w examples/Dockerfile not covered
       - name: Check example image build
         run: docker build -f examples/Dockerfile -t extproc-examples:ci .
   vet-check:
