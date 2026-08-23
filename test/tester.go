@@ -3,47 +3,28 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
-// probeHeader is a request header the harness sends with a comma in its value,
-// so we can observe how genHeaders represents it. See TestHeaderRepresentation.
+// probeHeader is a request header the harness sends with a comma in its value.
+// TestHeaderParsing asserts on how the SDK represented it.
 const probeHeader = "x-probe-list"
 
-func sortedKeys[V any](m map[string]V) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
-}
-
-// addHeaderRepresentationProbes reports, via request headers the upstream echo
-// server reflects back, how the SDK parsed the inbound headers. This answers two
-// questions we cannot answer by reading Envoy's source: whether Envoy populates
-// HeaderValue.value or HeaderValue.raw_value for ext_proc, and what the comma
-// splitting in genHeaders does to a real value.
-//
-// Diagnostic only - remove once AllHeaders is settled.
-func addHeaderRepresentationProbes(ctx *ep.RequestContext, headers ep.AllHeaders) {
+// reportHeaderParsing reflects how the SDK parsed the inbound headers back via
+// request headers, which the upstream echo server returns in its body.
+func reportHeaderParsing(ctx *ep.RequestContext, headers ep.AllHeaders) {
 	str := func(s string) ep.HeaderValue { return ep.HeaderValue{RawValue: []byte(s)} }
 
-	ctx.AddHeader("x-probe-str-count", str(strconv.Itoa(len(headers.Headers))))
-	ctx.AddHeader("x-probe-raw-count", str(strconv.Itoa(len(headers.RawHeaders))))
-	ctx.AddHeader("x-probe-str-keys", str(strings.Join(sortedKeys(headers.Headers), " ")))
-	ctx.AddHeader("x-probe-raw-keys", str(strings.Join(sortedKeys(headers.RawHeaders), " ")))
+	ctx.AddHeader("x-parsed-str-count", str(strconv.Itoa(len(headers.Headers))))
+	ctx.AddHeader("x-parsed-raw-count", str(strconv.Itoa(len(headers.RawHeaders))))
 
-	if vs, ok := headers.Headers[probeHeader]; ok {
-		// "|" so we can see element boundaries produced by the comma split
-		ctx.AddHeader("x-probe-str-value", str(strings.Join(vs, "|")))
-	}
-	if rv, ok := headers.RawHeaders[probeHeader]; ok {
-		ctx.AddHeader("x-probe-raw-value", str(string(rv)))
+	if v, ok := headers.Get(probeHeader); ok {
+		ctx.AddHeader("x-parsed-list-value", str(v))
+		ctx.AddHeader("x-parsed-list-count", str(strconv.Itoa(len(headers.Values(probeHeader)))))
+		ctx.AddHeader("x-parsed-list-split", str(strings.Join(headers.SplitList(probeHeader), "|")))
 	}
 }
 
@@ -84,7 +65,7 @@ func (s *testingRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s *testingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
-	addHeaderRepresentationProbes(ctx, headers)
+	reportHeaderParsing(ctx, headers)
 	return ctx.ContinueRequest()
 }
 

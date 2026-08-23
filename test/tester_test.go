@@ -334,13 +334,10 @@ func TestRequests_Parameterized(t *testing.T) {
 
 }
 
-// TestHeaderRepresentation is a diagnostic, not an assertion of intended
-// behaviour. It reports how the SDK represented the inbound request headers so
-// we can decide what AllHeaders should look like. It fails only if the probes
-// did not make it through at all.
-//
-// Read the logged output with: go test -run TestHeaderRepresentation -v ./...
-func TestHeaderRepresentation(t *testing.T) {
+// TestHeaderParsing pins the header representation the SDK exposes to
+// processors: both maps populated for every header, values never split on
+// commas, opt-in splitting available via SplitList.
+func TestHeaderParsing(t *testing.T) {
 	req := &TesterRequest{
 		Headers: map[string]string{
 			probeHeader:    "a,b,c",
@@ -353,28 +350,36 @@ func TestHeaderRepresentation(t *testing.T) {
 		t.Fatalf("request failed: %v", err)
 	}
 
-	probes := []string{
-		"x-probe-str-count",
-		"x-probe-raw-count",
-		"x-probe-str-keys",
-		"x-probe-raw-keys",
-		"x-probe-str-value",
-		"x-probe-raw-value",
-	}
-
-	seen := 0
-	for _, n := range probes {
+	get := func(n string) string {
+		t.Helper()
 		v, ok := resp.Body.GetHeaderByName(n)
-		if !ok {
-			t.Logf("%-20s (absent)", n)
-			continue
+		if !ok || len(v) == 0 {
+			t.Fatalf("%s absent from reflected request headers; body: %s", n, resp.RawBody)
 		}
-		seen++
-		t.Logf("%-20s %v", n, v)
+		return v[0]
 	}
 
-	if seen == 0 {
-		t.Fatalf("no probe headers were reflected; is the extproc in the path? body: %s", resp.RawBody)
+	// Envoy sends raw_value only, so a representation keyed off which proto
+	// field was set leaves one map empty. Both must be populated.
+	strCount, rawCount := get("x-parsed-str-count"), get("x-parsed-raw-count")
+	if strCount != rawCount {
+		t.Errorf("header maps disagree: %s string entries vs %s raw entries", strCount, rawCount)
+	}
+	if strCount == "0" {
+		t.Errorf("no headers parsed at all")
+	}
+
+	// "a,b,c" is one value, not three: splitting would corrupt Date, Cookie, etc.
+	if v := get("x-parsed-list-value"); v != "a,b,c" {
+		t.Errorf("value was altered in parsing: got %q, want %q", v, "a,b,c")
+	}
+	if n := get("x-parsed-list-count"); n != "1" {
+		t.Errorf("one header occurrence became %s values", n)
+	}
+
+	// ... but splitting is available when the caller knows it is a list header
+	if v := get("x-parsed-list-split"); v != "a|b|c" {
+		t.Errorf("SplitList: got %q, want %q", v, "a|b|c")
 	}
 }
 
