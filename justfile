@@ -20,7 +20,6 @@ lint:
 
 # run vetter
 vet:
-    go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@latest
     go vet -vettool=$(go env GOPATH)/bin/shadow ./...
 
 # run unit tests (TBD)

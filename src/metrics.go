@@ -58,7 +58,7 @@ func NewEmptyMetrics() *Metrics {
 		),
 		TotalRequestBody: prometheus.NewCounter(
 			prometheus.CounterOpts{
-				Name: "extproc_request_body_bytes_total",
+				Name: "extproc_request_body_messages_total",
 				Help: "Total number of request bodies processed.",
 			},
 		),
@@ -76,7 +76,7 @@ func NewEmptyMetrics() *Metrics {
 		),
 		TotalResponseBody: prometheus.NewCounter(
 			prometheus.CounterOpts{
-				Name: "extproc_total_response_body",
+				Name: "extproc_response_body_messages_total",
 				Help: "Total number of response bodies processed.",
 			},
 		),
@@ -94,7 +94,7 @@ func NewEmptyMetrics() *Metrics {
 		),
 		BodyBytesReceived: prometheus.NewCounter(
 			prometheus.CounterOpts{
-				Name: "extproc_body_bytes_total",
+				Name: "extproc_request_body_bytes_total",
 				Help: "Total number of body bytes received.",
 			},
 		),

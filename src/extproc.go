@@ -217,7 +217,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		rc.EndOfStream = hs.EndOfStream
 
 		var headers AllHeaders
-		headers, err := genHeaders(hs.Headers)
+		headers, err = genHeaders(hs.Headers)
 		if err != nil {
 			s.logger.Error("Failed to generate response headers", slog.String("error", err.Error()))
 			s.processor.ErrorHandler(rc, phase, err)
