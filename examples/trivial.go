@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type trivialRequestProcessor struct {

@@ -6,7 +6,7 @@ import (
 	"hash"
 	"log"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type digestRequestProcessor struct {

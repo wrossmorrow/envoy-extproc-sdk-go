@@ -6,7 +6,7 @@ import (
 
 	"github.com/nqd/flat"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 var masked = map[string][]string{

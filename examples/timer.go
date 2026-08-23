@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type timerRequestProcessor struct {

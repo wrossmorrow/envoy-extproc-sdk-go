@@ -68,8 +68,9 @@ that work together to allow processing of requests and responses. An ExtProc ser
 import  "github.com/wrossmorrow/envoy-extproc-sdk-go"
 
 func main() {
-    // define serverOptions, processingOptions, setup your slog.Logger...
-    extproc.MustServe(serverOptions, myRequestProcessor{}, processingOptions, logger)
+    // define serverOptions, setup your slog.Logger...
+    // (ProcessingOptions are supplied by your processor's GetOptions method)
+    extproc.MustServe(serverOptions, myRequestProcessor{}, logger)
 }
 ```
 or directly if you want finer grained control with code like

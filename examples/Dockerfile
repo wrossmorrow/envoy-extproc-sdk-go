@@ -5,8 +5,7 @@ FROM golang:${GO_VERSION_TAG} AS builder
 
 WORKDIR /build
 
-COPY go.mod *.go ./
-COPY src/* ./src/
+COPY go.mod go.sum *.go ./
 COPY examples/go.mod examples/go.sum* examples/*.go ./examples/
 
 WORKDIR /build/examples

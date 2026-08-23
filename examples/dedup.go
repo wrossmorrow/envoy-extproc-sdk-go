@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 var cache map[string]bool

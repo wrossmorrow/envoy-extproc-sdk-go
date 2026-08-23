@@ -12,11 +12,11 @@ tidy:
 
 # format code
 format:
-    go fmt src/*.go
+    go fmt ./...
 
 # run linter
 lint:
-    golangci-lint run src/...
+    golangci-lint run ./...
 
 # run vetter
 vet:

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type echoRequestProcessor struct {

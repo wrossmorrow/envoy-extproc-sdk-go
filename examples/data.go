@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	ep "github.com/wrossmorrow/envoy-extproc-sdk-go/src"
+	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type dataRequestProcessor struct {
