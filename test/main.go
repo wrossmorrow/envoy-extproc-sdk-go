@@ -38,5 +38,5 @@ func main() {
 		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}),
 	)
 
-	ep.Serve(sopts, proc, logger)
+	ep.MustServe(sopts, proc, logger)
 }

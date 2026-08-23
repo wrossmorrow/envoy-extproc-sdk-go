@@ -102,10 +102,10 @@ opts := extproc.NewDefaultProcessingOptions()
 
 `Serve` now performs a real graceful shutdown on SIGTERM/SIGINT, fixing bugs in previous versions:
 
-1. the gRPC health service starts reporting `NOT_SERVING`
-2. it waits `UnreadyPropagationDelaySeconds` (default 5) so load balancers doing active health checking observe that
+1. The gRPC health service starts reporting `NOT_SERVING`
+2. It waits `UnreadyPropagationDelaySeconds` (default 5) so load balancers doing active health checking observe that
 3. `GracefulStop` sends GOAWAY and waits for in-flight streams, bounded by `TerminationGracePeriodSeconds`, falling back to a hard `Stop`
-4. the processor's own `Close` runs last, if the grace period allows it (unfortunately) with a drained server.
+4. The processor's `Close` runs last. Note it always runs after the server has stopped, whether streams drained or were aborted so it can flush or commit to any durable data layers (if any). Up to `TerminationGracePeriodSeconds` may have already passed, so perhaps buffer further in kubernetes configurations.
 
 Two consequences: a `SIGTERM` now takes at least `UnreadyPropagationDelaySeconds` to return (set it to `0` in tests and local runs), and the health service now reports real status. Previously `Check` returned `SERVING` unconditionally, so `MarkUnready` had no observable effect.
 
