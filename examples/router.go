@@ -25,7 +25,8 @@ func (s *routingRequestProcessor) GetOptions() *ep.ProcessingOptions {
 
 func (s *routingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
 	ctx.SetValue("routed", false)
-	// parse if there is a routing header
+	// parse and "redirect" if there is a routing header
+	// NOTE: mutation_rules.allow_all_routing is critical in the envoy config to modify :authority
 	if upstream, ok := ctx.AllHeaders.Get("x-route-to-upstream"); ok {
 		ctx.SetValue("routed", true)
 		ctx.OverwriteHeader(":authority", ep.HeaderValue{RawValue: []byte(upstream)})
@@ -41,6 +42,7 @@ func (s *routingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, 
 func (s *routingRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
 	if routed, err := ctx.GetValue("routed"); err != nil || !routed.(bool) {
 		// parse request body, assuming buffered and JSON in a specific schema declaring the upstream
+		// NOTE: mutation_rules.allow_all_routing is critical in the envoy config to modify :authority
 		var parsedBody UpstreamBodySchema
 		err = json.Unmarshal(body, &parsedBody)
 		if err != nil {
