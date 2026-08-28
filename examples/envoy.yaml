@@ -29,14 +29,16 @@ static_resources:
                             prefix: "/"
                             headers:
                               - name: ":authority"
-                                exact_match: "upstream"
+                                string_match: 
+                                  exact: "upstream"
                           route:
                             cluster: upstream
                         - match:
                             prefix: "/"
                             headers:
                               - name: ":authority"
-                                exact_match: "upstream-copy"
+                                string_match: 
+                                  exact: "upstream-copy"
                           route:
                             cluster: upstream-copy
                         - match:
@@ -179,7 +181,9 @@ static_resources:
                         envoy_grpc:
                           cluster_name: router
                         timeout: 30s
-                      failure_mode_allow: true
+                      failure_mode_allow: false
+                      mutation_rules:
+                        allow_all_routing: true
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND

@@ -24,14 +24,12 @@ func (s *routingRequestProcessor) GetOptions() *ep.ProcessingOptions {
 }
 
 func (s *routingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
-	log.Printf("Router got request headers")
 	ctx.SetValue("routed", false)
 	// parse if there is a routing header
 	if upstream, ok := ctx.AllHeaders.Get("x-route-to-upstream"); ok {
 		ctx.SetValue("routed", true)
 		ctx.OverwriteHeader(":authority", ep.HeaderValue{RawValue: []byte(upstream)})
 		ctx.ClearRouteCache()
-		log.Printf("Router got routing request header, routing to %s", upstream)
 	}
 
 	response, _ := ctx.GetResponse(ctx.GetPhase())
@@ -41,7 +39,6 @@ func (s *routingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, 
 }
 
 func (s *routingRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
-	log.Printf("Router got request body")
 	if routed, err := ctx.GetValue("routed"); err != nil || !routed.(bool) {
 		// parse request body, assuming buffered and JSON in a specific schema declaring the upstream
 		var parsedBody UpstreamBodySchema
@@ -52,7 +49,6 @@ func (s *routingRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, bod
 			ctx.SetValue("routed", true)
 			ctx.OverwriteHeader(":authority", ep.HeaderValue{RawValue: []byte(parsedBody.Upstream)})
 			ctx.ClearRouteCache()
-			log.Printf("Router got routing request body field, routing to %s", parsedBody.Upstream)
 		}
 	}
 	return ctx.ContinueRequest()
