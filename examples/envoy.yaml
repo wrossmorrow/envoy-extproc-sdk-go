@@ -27,6 +27,22 @@ static_resources:
                               disabled: true
                         - match:
                             prefix: "/"
+                            headers:
+                              - name: ":authority"
+                                string_match: 
+                                  exact: "upstream"
+                          route:
+                            cluster: upstream
+                        - match:
+                            prefix: "/"
+                            headers:
+                              - name: ":authority"
+                                string_match: 
+                                  exact: "upstream-copy"
+                          route:
+                            cluster: upstream-copy
+                        - match:
+                            prefix: "/"
                           route:
                             cluster: upstream
                 http_filters:
@@ -158,6 +174,24 @@ static_resources:
                         response_body_mode: BUFFERED
                         request_trailer_mode: SKIP
                         response_trailer_mode: SKIP
+                  - name: envoy.filters.http.ext_proc
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                      grpc_service:
+                        envoy_grpc:
+                          cluster_name: router
+                        timeout: 30s
+                      failure_mode_allow: false
+                      mutation_rules:
+                        allow_all_routing: true
+                      message_timeout: 0.2s
+                      processing_mode:
+                        request_header_mode: SEND
+                        response_header_mode: SEND
+                        request_body_mode: BUFFERED
+                        response_body_mode: BUFFERED
+                        request_trailer_mode: SKIP
+                        response_trailer_mode: SKIP
                   - name: envoy.filters.http.router
                     typed_config:
                       '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -181,6 +215,26 @@ static_resources:
                 address:
                   socket_address:
                     address: upstream
+                    port_value: 8000
+  - name: upstream-copy
+    connect_timeout: 0.250s
+    type: LOGICAL_DNS
+    lb_policy: LEAST_REQUEST
+    dns_lookup_family: V4_ONLY
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http_protocol_options: {}
+    load_assignment:
+      cluster_name: upstream-copy
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                hostname: upstream-copy
+                address:
+                  socket_address:
+                    address: upstream-copy
                     port_value: 8000
   - name: noop
     dns_lookup_family: V4_ONLY
@@ -328,6 +382,25 @@ static_resources:
                 address: echo
                 port_value: 50051
             hostname: echo
+    type: LOGICAL_DNS
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+  - name: router
+    dns_lookup_family: V4_ONLY
+    lb_policy: LEAST_REQUEST
+    load_assignment:
+      cluster_name: router
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: router
+                port_value: 50051
+            hostname: router
     type: LOGICAL_DNS
     typed_extension_protocol_options:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:

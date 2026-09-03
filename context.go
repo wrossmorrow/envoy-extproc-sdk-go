@@ -23,6 +23,15 @@ const (
 	REQUEST_PHASE_RESPONSE_TRAILERS = 6
 )
 
+func defaultPhaseIfInvalid(phase int) int {
+	switch phase {
+	case REQUEST_PHASE_UNDETERMINED, REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_REQUEST_BODY, REQUEST_PHASE_REQUEST_TRAILERS, REQUEST_PHASE_RESPONSE_HEADERS, REQUEST_PHASE_RESPONSE_BODY, REQUEST_PHASE_RESPONSE_TRAILERS:
+		return phase
+	default:
+		return REQUEST_PHASE_UNDETERMINED
+	}
+}
+
 func RequestPhaseToString(phase int) string {
 	switch phase {
 	case REQUEST_PHASE_UNDETERMINED:
@@ -51,6 +60,7 @@ type PhaseResponse struct {
 	bodyMutation      *extprocv3.BodyMutation      // body responses
 	continueRequest   *extprocv3.CommonResponse    // headers/body responses
 	immediateResponse *extprocv3.ImmediateResponse // headers/body responses
+	clearRouteCache   bool
 }
 
 type HeaderValue struct {
@@ -115,7 +125,9 @@ type RequestContext struct {
 	Duration    time.Duration
 	EndOfStream bool
 	data        map[string]any
-	response    PhaseResponse
+
+	phase    int
+	response PhaseResponse
 }
 
 // data must be allocated here, not in initReqCtx: that only runs in the
@@ -193,12 +205,26 @@ func (rc *RequestContext) SetValue(name string, val any) error {
 }
 
 func (rc *RequestContext) ResetPhase() error {
+	rc.phase = REQUEST_PHASE_UNDETERMINED
 	rc.EndOfStream = false
 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
 	rc.response.bodyMutation = nil
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = nil
+	rc.response.clearRouteCache = false
 	return nil
+}
+
+func (rc *RequestContext) setPhase(phase int) {
+	rc.phase = defaultPhaseIfInvalid(phase)
+}
+
+func (rc *RequestContext) GetPhase() int {
+	return rc.phase
+}
+
+func (rc *RequestContext) GetPhaseName() string {
+	return RequestPhaseToString(rc.phase)
 }
 
 func (rc *RequestContext) ContinueRequest() error {
@@ -211,6 +237,7 @@ func (rc *RequestContext) ContinueRequest() error {
 		HeaderMutation: rc.response.headerMutation,
 		BodyMutation:   rc.response.bodyMutation,
 		// trailers?
+		ClearRouteCache: rc.response.clearRouteCache,
 	}
 
 	return nil
@@ -229,6 +256,14 @@ func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderV
 		Body:    []byte(body),
 	}
 	return nil
+}
+
+func (rc *RequestContext) ClearRouteCache() {
+	rc.response.clearRouteCache = true
+}
+
+func (rc *RequestContext) UnClearRouteCache() {
+	rc.response.clearRouteCache = false
 }
 
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
