@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/nqd/flat"
 
@@ -21,14 +22,10 @@ type maskerRequestProcessor struct {
 	opts *ep.ProcessingOptions
 }
 
-func isMaybeJSON(headers map[string][]string) bool {
-	types, exists := headers["content-type"]
-	if !exists {
-		return false
-	}
-
-	for _, t := range types {
-		if t == "application/json" {
+func isMaybeJSON(headers ep.AllHeaders) bool {
+	for _, t := range headers.Values("content-type") {
+		// NOTE: media type may carry parameters, eg "application/json; charset=utf-8"
+		if strings.HasPrefix(strings.TrimSpace(strings.ToLower(t)), "application/json") {
 			return true
 		}
 	}
@@ -92,13 +89,13 @@ func (s *maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body
 	// replace body, unmarshalled to []byte
 	if len(masked["request"]) > 0 {
 		log.Print("examining request body")
-		if isMaybeJSON(ctx.AllHeaders.Headers) {
+		if isMaybeJSON(ctx.AllHeaders) {
 			log.Print("request body may be JSON")
 			masked, err := maskJSONData(masked["request"], body)
 			if err != nil {
 				log.Printf("Error: %v", err)
 			} else {
-				ctx.ReplaceBodyChunk(masked)
+				ctx.ReplaceBody(masked)
 			}
 		}
 	}
@@ -121,12 +118,15 @@ func (s *maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 	// replace body, unmarshalled to []byte
 	if len(masked["response"]) > 0 {
 		rh, _ := ctx.GetValue("responseHeaders")
-		if isMaybeJSON(rh.(map[string][]string)) {
+		// stored as ep.AllHeaders in ProcessResponseHeaders; the previous
+		// assertion to map[string][]string would have panicked here
+		headers, ok := rh.(ep.AllHeaders)
+		if ok && isMaybeJSON(headers) {
 			masked, err := maskJSONData(masked["response"], body)
 			if err != nil {
 				log.Printf("Error: %v", err)
 			} else {
-				ctx.ReplaceBodyChunk(masked)
+				ctx.ReplaceBody(masked)
 			}
 		}
 	}
@@ -137,9 +137,16 @@ func (s *maskerRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext,
 	return ctx.ContinueRequest()
 }
 
+func (s *maskerRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *maskerRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *maskerRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil
 }
-
-func (s *maskerRequestProcessor) Finish() {}

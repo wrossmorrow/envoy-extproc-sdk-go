@@ -13,6 +13,9 @@ Several examples are provided here in the [examples](#examples), which can be re
 
 ## Usage
 
+> Upgrading from a `v0.0.x` release? See [MIGRATION.md](MIGRATION.md); this
+> release changes public API and shutdown behaviour.
+
 ### TL;DR
 
 Implement the `extproc.RequestProcessor` interface, and pass an instance to the `extproc.Serve` function.
@@ -25,6 +28,7 @@ type GenericExtProcServer struct {
   name      string
   processor RequestProcessor
   options   *ProcessingOptions
+  ...
 }
 
 ```
@@ -39,6 +43,8 @@ type RequestProcessor interface {
   ProcessResponseTrailers(ctx *RequestContext, trailers AllHeaders) error
   ProcessResponseBody(ctx *RequestContext, body []byte) error
   ProcessRequestBody(ctx *RequestContext, body []byte) error
+	ErrorHandler(ctx *RequestContext, phase int, err error)
+	Close(gracePeriodSeconds int32) error
 }
 
 ```
@@ -60,37 +66,17 @@ type RequestContext struct {
   response    PhaseResponse
 }
 ```
-that work together to allow processing of requests and responses. An ExtProc service can be run with the `Serve` method as in
+that work together to allow processing of requests and responses. An ExtProc service can be run with the `MustServe` method as in
 ```go
 import  "github.com/wrossmorrow/envoy-extproc-sdk-go"
 
 func main() {
-    extproc.Serve(50051, myRequestProcessor{})
+    // define serverOptions, setup your slog.Logger...
+    // (ProcessingOptions are supplied by your processor's GetOptions method)
+    extproc.MustServe(serverOptions, myRequestProcessor{}, logger)
 }
 ```
-or directly if you want finer grained control with code like
-```go
-import (
-    ...
-    "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-    epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-)
-
-func main() {
-
-    ...
-
-    service := &extproc.GenericExtProcServer{
-        name:      "trivial",
-        processor: &myRequestProcessor{},
-    }
-    epb.RegisterExternalProcessorServer(s, service)
-
-    ...
-
-}
-```
-for `myRequestProcessor` implementing `RequestProcessor`. The `GenericExtProcServer` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
+Internally the `GenericExtProcServer` constructed in `[Must]Serve` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
 
 ### Context Data
 
@@ -123,14 +109,14 @@ You can add headers to a response with the convenience methods
 ```go
 (rc *RequestContext) AddHeader(name string, hv HeaderValue) error
 (rc *RequestContext) AddHeaders(headers map[string]HeaderValue) error
-(rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error
-(rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error
 (rc *RequestContext) AppendHeader(name string, hv HeaderValue) error
 (rc *RequestContext) AppendHeaders(headers map[string]HeaderValue) error
 (rc *RequestContext) OverwriteHeader(name string, hv HeaderValue) error
 (rc *RequestContext) OverwriteHeaders(headers map[string]HeaderValue) error
+(rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error
+(rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error
 ```
-where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call.
+where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call. `UpdateHeader[s]` is a generic method that should accept any action in protobuf enums wrapped or not in a specific method. Note though using this will error on invalid header update actions.
 
 Headers can be removed with the
 ```go

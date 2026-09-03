@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
@@ -122,9 +123,16 @@ func (s *dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, 
 	return ctx.ContinueRequest()
 }
 
-func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, extnonFlagArgsraArgs []string) error {
-	s.opts = opts
+func (s *dedupRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *dedupRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
 	return nil
 }
 
-func (s *dedupRequestProcessor) Finish() {}
+func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
+	s.opts = opts
+	return nil
+}

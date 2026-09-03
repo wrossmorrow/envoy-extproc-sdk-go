@@ -1,21 +1,21 @@
 package main
 
 import (
+	"log"
 	"regexp"
 	"strings"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
-	extproc "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
 type echoRequestProcessor struct {
 	opts *ep.ProcessingOptions
 }
 
-func joinHeaders(mvhs map[string][]string) map[string]extproc.HeaderValue {
-	hs := make(map[string]extproc.HeaderValue)
+func joinHeaders(mvhs map[string][]string) map[string]ep.HeaderValue {
+	hs := make(map[string]ep.HeaderValue)
 	for n, vs := range mvhs {
-		hs[n] = extproc.HeaderValue{Value: strings.Join(vs, ",")}
+		hs[n] = ep.HeaderValue{Value: strings.Join(vs, ",")}
 	}
 	return hs
 }
@@ -79,9 +79,16 @@ func (s *echoRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, t
 	return ctx.ContinueRequest()
 }
 
+func (s *echoRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *echoRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *echoRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil
 }
-
-func (s *echoRequestProcessor) Finish() {}

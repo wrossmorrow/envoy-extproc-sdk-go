@@ -1,0 +1,41 @@
+services:
+
+  # envoy, configured as with envoy.yaml to use extprocs
+  envoy:
+    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.35-latest}
+    command: envoy -c /etc/envoy/envoy.yaml --log-level ${ENVOY_LOG_LEVEL:-info}
+    ports:
+      - "8080:8000"
+      - "9901:9901"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    depends_on:
+      upstream:
+        condition: service_started
+      test:
+        condition: service_healthy
+
+  # upstream "echo" server
+  upstream:
+    hostname: upstream
+    image: ghcr.io/wrossmorrow/simple-echo-server:${ECHO_SERVER_VERSION:-main}
+    ports:
+      - '8000:8000'
+    environment:
+      - LOG_LEVEL=info
+
+  # extprocs
+  test:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-go:test-${IMAGE_TAG:-compose}
+    build:
+      context: ..
+      dockerfile: test/Dockerfile
+    ports:
+      - '50051:50051'
+      - '9090:9090'
+    healthcheck:
+      test: ["CMD", "/grpc-health-probe", "-addr=localhost:50051"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 3s

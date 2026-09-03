@@ -1,0 +1,39 @@
+
+image_name := "ghcr.io/wrossmorrow/envoy-extproc-sdk-go"
+image_tag := `git rev-parse HEAD`
+
+# list these commands and exit
+default:
+    just --list
+
+# update modules
+update:
+    go get -u ./ && just tidy
+
+# tidy up modules
+tidy:
+    go mod tidy
+
+# format code
+format:
+    go fmt *.go
+
+# build the test binary
+build *flags="":
+    go build -o bin/test {{flags}} .
+
+# run tests
+test *flags="-v":
+    go test {{flags}}
+
+# containerize the examples
+containerize tag=image_tag *flags="":
+    cd .. && docker build -f test/Dockerfile -t {{image_name}}:test-{{tag}} . {{flags}}
+
+# run the examples in a container setup with envoy and an echo server
+up *flags:
+    cd .. && docker compose -f test/compose.yaml up --build {{flags}}
+
+# stop the examples in a container setup with envoy and an echo server
+down *flags:
+    cd .. && docker compose -f test/compose.yaml down {{flags}}

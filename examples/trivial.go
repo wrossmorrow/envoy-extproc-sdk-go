@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
@@ -42,9 +44,16 @@ func (s *trivialRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext
 	return ctx.ContinueRequest()
 }
 
+func (s *trivialRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *trivialRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *trivialRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil
 }
-
-func (s *trivialRequestProcessor) Finish() {}

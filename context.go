@@ -3,7 +3,6 @@ package extproc
 import (
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,7 +23,28 @@ const (
 	REQUEST_PHASE_RESPONSE_TRAILERS = 6
 )
 
-const kContentLength = "Content-Length"
+func RequestPhaseToString(phase int) string {
+	switch phase {
+	case REQUEST_PHASE_UNDETERMINED:
+		return "UNDETERMINED"
+	case REQUEST_PHASE_REQUEST_HEADERS:
+		return "REQUEST_HEADERS"
+	case REQUEST_PHASE_REQUEST_BODY:
+		return "REQUEST_BODY"
+	case REQUEST_PHASE_REQUEST_TRAILERS:
+		return "REQUEST_TRAILERS"
+	case REQUEST_PHASE_RESPONSE_HEADERS:
+		return "RESPONSE_HEADERS"
+	case REQUEST_PHASE_RESPONSE_BODY:
+		return "RESPONSE_BODY"
+	case REQUEST_PHASE_RESPONSE_TRAILERS:
+		return "RESPONSE_TRAILERS"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", phase)
+	}
+}
+
+const kContentLength = "content-length"
 
 type PhaseResponse struct {
 	headerMutation    *extprocv3.HeaderMutation    // any response
@@ -36,6 +56,48 @@ type PhaseResponse struct {
 type HeaderValue struct {
 	Value    string
 	RawValue []byte
+}
+
+func (hv HeaderValue) IsValid() bool {
+	if len(hv.Value) > 0 && hv.RawValue != nil {
+		return false
+	}
+	return true
+}
+
+func (hv HeaderValue) ToEnvoyHeaderValue(name string) *corev3.HeaderValue {
+	if len(hv.Value) > 0 && hv.RawValue == nil {
+		return &corev3.HeaderValue{
+			Key:      name,
+			RawValue: []byte(hv.Value),
+		}
+	}
+	return &corev3.HeaderValue{
+		Key:      name,
+		RawValue: hv.RawValue,
+	}
+}
+
+func (hv HeaderValue) ToEnvoyHeaderValueOption(name string, action string) (*corev3.HeaderValueOption, error) {
+	if !hv.IsValid() {
+		return nil, fmt.Errorf("invalid header value for %s", name)
+	}
+	v, ok := corev3.HeaderValueOption_HeaderAppendAction_value[action]
+	if !ok {
+		return nil, fmt.Errorf("unknown header append action %q", action)
+	}
+	return &corev3.HeaderValueOption{
+		Header:       hv.ToEnvoyHeaderValue(name),
+		AppendAction: corev3.HeaderValueOption_HeaderAppendAction(v),
+	}, nil
+}
+
+func BuildHeaderValuesFromMap(headers map[string]string) map[string]HeaderValue {
+	h := make(map[string]HeaderValue)
+	for n := range headers {
+		h[n] = HeaderValue{RawValue: []byte(headers[n])}
+	}
+	return h
 }
 
 type RequestContext struct {
@@ -56,6 +118,15 @@ type RequestContext struct {
 	response    PhaseResponse
 }
 
+// data must be allocated here, not in initReqCtx: that only runs in the
+// request headers phase, which request_header_mode: SKIP never reaches.
+func newRequestContext() *RequestContext {
+	return &RequestContext{
+		// for custom data between phases
+		data: make(map[string]any),
+	}
+}
+
 func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	rc.Started = time.Now()
 	rc.Duration = 0
@@ -72,9 +143,6 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 		return val
 	}
 
-	// for custom data between phases
-	rc.data = make(map[string]any)
-
 	// for stream phase responses (convenience)
 	rc.ResetPhase()
 
@@ -83,7 +151,7 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	var err error
 	rc.AllHeaders, err = genHeaders(headers)
 	if err != nil {
-		return fmt.Errorf("parse header is failed: %w", err)
+		return fmt.Errorf("parsing headers failed: %w", err)
 	}
 
 	for _, h := range headers.Headers {
@@ -149,8 +217,9 @@ func (rc *RequestContext) ContinueRequest() error {
 }
 
 func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderValue, body string) error {
-	log.Printf("Cancelling request: %d, %v, %s", status, headers, body)
-	rc.AppendHeaders(headers)
+	if err := rc.AppendHeaders(headers); err != nil {
+		return err
+	}
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = &extprocv3.ImmediateResponse{
 		Status: &typev3.HttpStatus{
@@ -163,6 +232,7 @@ func (rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderV
 }
 
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
+
 	// handle immediate responses
 	if rc.response.immediateResponse != nil {
 		switch phase {
@@ -182,16 +252,13 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 
 	// handle "common" responses (immediateResponse == nil and/or phase ignored)
 
-	// presume no-op if common response wrapper is not defined
-	// if rc.response.headerMutation == nil {
-	// 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
-	// }
-	if rc.response.continueRequest == nil {
-		rc.response.continueRequest = &extprocv3.CommonResponse{}
+	// Rebuild the common response unconditionally. Mutations can be added after
+	// the processor returns - the extproc name and duration headers, say - and
+	// this is what folds them in. It also defaults a processor that set nothing
+	// at all to "continue".
+	if err := rc.ContinueRequest(); err != nil {
+		return nil, err
 	}
-
-	// HACK: (?) this means any post-process modifications are added
-	rc.ContinueRequest()
 
 	switch phase {
 	case REQUEST_PHASE_REQUEST_HEADERS:
@@ -253,19 +320,74 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 	}
 }
 
+func (rc *RequestContext) EmptyContinueResponse(phase int) (*extprocv3.ProcessingResponse, error) {
+	switch phase {
+	case REQUEST_PHASE_REQUEST_HEADERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_RequestHeaders{
+				RequestHeaders: &extprocv3.HeadersResponse{
+					Response: &extprocv3.CommonResponse{},
+				},
+			},
+		}, nil
+
+	case REQUEST_PHASE_REQUEST_BODY:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_RequestBody{
+				RequestBody: &extprocv3.BodyResponse{
+					Response: &extprocv3.CommonResponse{},
+				},
+			},
+		}, nil
+
+	case REQUEST_PHASE_REQUEST_TRAILERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_RequestTrailers{
+				RequestTrailers: &extprocv3.TrailersResponse{
+					HeaderMutation: &extprocv3.HeaderMutation{},
+				},
+			},
+		}, nil
+
+	case REQUEST_PHASE_RESPONSE_HEADERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_ResponseHeaders{
+				ResponseHeaders: &extprocv3.HeadersResponse{
+					Response: &extprocv3.CommonResponse{},
+				},
+			},
+		}, nil
+
+	case REQUEST_PHASE_RESPONSE_BODY:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_ResponseBody{
+				ResponseBody: &extprocv3.BodyResponse{
+					Response: &extprocv3.CommonResponse{},
+				},
+			},
+		}, nil
+
+	case REQUEST_PHASE_RESPONSE_TRAILERS:
+		return &extprocv3.ProcessingResponse{
+			Response: &extprocv3.ProcessingResponse_ResponseTrailers{
+				ResponseTrailers: &extprocv3.TrailersResponse{
+					HeaderMutation: &extprocv3.HeaderMutation{},
+				},
+			},
+		}, nil
+
+	default:
+		return nil, errors.New("unknown request phase")
+	}
+}
+
 func (rc *RequestContext) UpdateHeader(name string, hv HeaderValue, action string) error {
-	if len(hv.Value) != 0 && hv.RawValue != nil {
-		return fmt.Errorf("only one of 'value' or 'raw_value' can be set")
-	}
 	hm := rc.response.headerMutation
-	aa := corev3.HeaderValueOption_HeaderAppendAction(
-		corev3.HeaderValueOption_HeaderAppendAction_value[action],
-	)
-	h := &corev3.HeaderValueOption{
-		Header:       &corev3.HeaderValue{Key: name, Value: hv.Value, RawValue: hv.RawValue},
-		AppendAction: aa,
+	ho, err := hv.ToEnvoyHeaderValueOption(name, action)
+	if err != nil {
+		return err
 	}
-	hm.SetHeaders = append(hm.SetHeaders, h)
+	hm.SetHeaders = append(hm.SetHeaders, ho)
 	return nil
 }
 
@@ -282,20 +404,15 @@ func (rc *RequestContext) OverwriteHeader(name string, hv HeaderValue) error {
 }
 
 func (rc *RequestContext) UpdateHeaders(headers map[string]HeaderValue, action string) error {
-	hm := rc.response.headerMutation
-	aa := corev3.HeaderValueOption_HeaderAppendAction(
-		corev3.HeaderValueOption_HeaderAppendAction_value[action],
-	)
-	for k, v := range headers {
-		if len(v.Value) != 0 && v.RawValue != nil {
-			return fmt.Errorf("only one of 'value' or 'raw_value' can be set")
+	hos := make([]*corev3.HeaderValueOption, 0, len(headers))
+	for n, hv := range headers {
+		ho, err := hv.ToEnvoyHeaderValueOption(n, action)
+		if err != nil {
+			return err
 		}
-		h := &corev3.HeaderValueOption{
-			Header:       &corev3.HeaderValue{Key: k, Value: v.Value, RawValue: v.RawValue},
-			AppendAction: aa,
-		}
-		hm.SetHeaders = append(hm.SetHeaders, h)
+		hos = append(hos, ho)
 	}
+	rc.response.headerMutation.SetHeaders = append(rc.response.headerMutation.SetHeaders, hos...)
 	return nil
 }
 
@@ -339,9 +456,16 @@ func (rc *RequestContext) RemoveHeadersVariadic(headers ...string) error {
 	return nil
 }
 
+// ReplaceBodyChunk replaces the body bytes of the current message.
+//
+// It deliberately leaves Content-Length alone: under a STREAMED body mode the
+// chunk is only part of the body, so its length is not the message length. Use
+// ReplaceBody when the filter is configured BUFFERED and this call carries the
+// whole body.
+//
+// An empty body is a no-op; use ClearBodyChunk or ClearBody to remove a body.
 func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
-	size := len(body)
-	if size == 0 {
+	if len(body) == 0 {
 		return nil
 	}
 
@@ -351,11 +475,27 @@ func (rc *RequestContext) ReplaceBodyChunk(body []byte) error {
 		},
 	}
 
-	rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(size))})
-
 	return nil
 }
 
+// ReplaceBody replaces the whole body and updates Content-Length to match.
+//
+// Only correct when the filter is configured BUFFERED, so that a single body
+// message carries the entire body. Under STREAMED use ReplaceBodyChunk. Note
+// too that a chunked HTTP/1.1 message carries no Content-Length at all, so the
+// header written here is meaningless in that case.
+func (rc *RequestContext) ReplaceBody(body []byte) error {
+	if err := rc.ReplaceBodyChunk(body); err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(len(body)))})
+}
+
+// ClearBodyChunk removes the body bytes of the current message, leaving
+// Content-Length alone. See ReplaceBodyChunk on why.
 func (rc *RequestContext) ClearBodyChunk() error {
 	rc.response.bodyMutation = &extprocv3.BodyMutation{
 		Mutation: &extprocv3.BodyMutation_ClearBody{
@@ -363,4 +503,13 @@ func (rc *RequestContext) ClearBodyChunk() error {
 		},
 	}
 	return nil
+}
+
+// ClearBody removes the body and sets Content-Length to 0. See ReplaceBody on
+// when this is the right call.
+func (rc *RequestContext) ClearBody() error {
+	if err := rc.ClearBodyChunk(); err != nil {
+		return err
+	}
+	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(0))})
 }

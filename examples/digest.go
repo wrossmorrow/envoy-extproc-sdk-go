@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"hash"
+	"log"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
@@ -88,9 +89,16 @@ func (s *digestRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext,
 	return ctx.ContinueRequest()
 }
 
+func (s *digestRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *digestRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *digestRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil
 }
-
-func (s *digestRequestProcessor) Finish() {}

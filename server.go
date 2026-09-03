@@ -1,54 +1,146 @@
 package extproc
 
 import (
-	"log"
+	"context"
+	"fmt"
+	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
 
-	"google.golang.org/grpc"
-
 	epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/grpc"
 	hpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func Serve(port int, processor RequestProcessor) {
+func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slog.Logger) error {
 	if processor == nil {
-		log.Fatalf("cannot process request stream without `processor`")
+		logger.Error("cannot process request stream without `processor`")
+		return fmt.Errorf("processor is nil")
 	}
 
-	lis, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	// setup metrics server
+
+	registry := prometheus.NewRegistry()
+	metrics := NewEmptyMetrics().Register(registry)
+
+	// a dedicated mux (not http.DefaultServeMux) so that Serve can be called
+	// more than once in a process without panicking on a duplicate route
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.HandlerFor(
+		registry,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	))
+	metricsServer := &http.Server{
+		Addr:              ":" + strconv.Itoa(serverOptions.MetricsHTTPPort),
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		logger.Info("Started metrics HTTP server", slog.Int("port", serverOptions.MetricsHTTPPort))
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Failed to start metrics HTTP server", slog.String("error", err.Error()))
+		}
+	}()
+
+	// setup and register the extproc server
+
+	lis, err := net.Listen("tcp", ":"+strconv.Itoa(serverOptions.ExtProcPort))
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Error("Failed to listen", slog.Int("port", serverOptions.ExtProcPort), slog.String("error", err.Error()))
+		return err
 	}
 
-	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(1000)}
+	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(serverOptions.MaxConcurrentStreams)}
 	s := grpc.NewServer(sopts...)
 
 	name := processor.GetName()
-	opts := processor.GetOptions() // TODO: figure out command line overrides
+	opts := processor.GetOptions()
 	extproc := &GenericExtProcServer{
 		name:      name,
 		processor: processor,
 		options:   opts,
+		metrics:   metrics,
+		logger:    logger,
 	}
 	epb.RegisterExternalProcessorServer(s, extproc)
-	hpb.RegisterHealthServer(s, &HealthServer{})
 
-	log.Printf("Starting ExtProc(%s) on port %d\n", name, port)
+	health := NewReadyHealthServer()
+	hpb.RegisterHealthServer(s, health)
 
-	go s.Serve(lis)
+	logger.Info("Starting extproc gRPC Server", slog.String("name", name), slog.Int("port", serverOptions.ExtProcPort))
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- s.Serve(lis) }()
 
 	gracefulStop := make(chan os.Signal, 1)
-	signal.Notify(gracefulStop, syscall.SIGTERM)
-	signal.Notify(gracefulStop, syscall.SIGINT)
-	sig := <-gracefulStop
-	log.Printf("caught sig: %+v", sig)
-	log.Println("Wait for 1 second to finish processing")
-	lis.Close()
+	signal.Notify(gracefulStop, syscall.SIGTERM, syscall.SIGINT)
 
-	time.Sleep(1 * time.Second)
+	grace := time.Duration(serverOptions.TerminationGracePeriodSeconds) * time.Second
+
+	select {
+	case err := <-serveErr:
+		// Serve returns nil only after Stop/GracefulStop, neither of which can
+		// have run before a signal; guard anyway so a future change can't panic
+		if err == nil {
+			logger.Warn("gRPC server exited without error before shutdown was requested")
+			return nil
+		}
+		logger.Error("gRPC server exited unexpectedly", slog.String("error", err.Error()))
+		return err
+
+	case sig := <-gracefulStop:
+
+		logger.Info("Caught signal, waiting to finish processing",
+			slog.String("signal", sig.String()),
+			slog.Duration("grace_period", grace),
+			slog.Int("grace_period_seconds", int(serverOptions.TerminationGracePeriodSeconds)))
+
+		health.MarkUnready()
+
+		time.Sleep(time.Duration(serverOptions.UnreadyPropagationDelaySeconds) * time.Second)
+
+		// 3. GOAWAY + wait for in-flight streams, bounded by the grace period
+		stopped := make(chan struct{})
+		go func() {
+			s.GracefulStop() // closes lis for us; do NOT call lis.Close()
+			close(stopped)
+		}()
+
+		select {
+		case <-stopped:
+			logger.Info("all active streams drained")
+		case <-time.After(grace):
+			logger.Warn("grace period elapsed, forcing stop")
+			s.Stop() // NOTE: aborts remaining streams
+			<-stopped
+		}
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("metrics HTTP server shutdown error", slog.String("error", err.Error()))
+		}
+
+		if err := extproc.Close(serverOptions.TerminationGracePeriodSeconds); err != nil {
+			logger.Error("processor close error", slog.String("error", err.Error()))
+			return err
+		}
+		return nil
+	}
+}
+
+func MustServe(serverOptions *ServerOptions, processor RequestProcessor, logger *slog.Logger) {
+	if err := Serve(serverOptions, processor, logger); err != nil {
+		logger.Error("extproc server failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 }

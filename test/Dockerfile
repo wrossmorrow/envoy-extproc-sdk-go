@@ -6,21 +6,21 @@ FROM golang:${GO_VERSION_TAG} AS builder
 WORKDIR /build
 
 COPY go.mod go.sum *.go ./
-COPY examples/go.mod examples/go.sum* examples/*.go ./examples/
+COPY test/go.mod test/go.sum* test/*.go ./test/
 
-WORKDIR /build/examples
+WORKDIR /build/test
 RUN go mod tidy \
     && go mod download \
     && go build -o /extproc .
 
-# application
+RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.39
+
 FROM golang:${GO_VERSION_TAG}
 
 COPY --from=builder /extproc /extproc
+COPY --from=builder /go/bin/grpc-health-probe /grpc-health-probe
 
 EXPOSE 50051
 EXPOSE 9090
 
-ARG EXAMPLE=noop
 ENTRYPOINT [ "/extproc" ]
-CMD [ "noop" ]

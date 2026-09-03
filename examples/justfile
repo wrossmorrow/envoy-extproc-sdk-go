@@ -2,47 +2,54 @@
 image_name := "envoy-extproc-sdk-go-examples"
 image_tag := `git rev-parse HEAD`
 
+# list these commands and exit
 default:
     just --list
 
+# update modules
 update:
     go get -u ./ && just tidy
 
+# tidy up modules
 tidy:
     go mod tidy
 
+# format code
 format:
     go fmt *.go
 
+# run unit tests code
 unit-test: 
     echo "TBD"
 
+# run integration tests on code
 integration-test: 
     echo "TBD"
 
-coverage: 
-    echo "TBD"
-
+# run a specific example
 run example="noop" *flags="":
     go run *.go {{flags}} {{example}}
 
+# build the example binary
 build *flags="":
-    go build {{flags}}
+    go build -o bin/examples {{flags}} .
 
-containerize tag=image_tag *flags="": 
-    [[ -d extproc ]] && rm -rf extproc || true
-    mkdir -p extproc \
-        && cp ../*.go extproc/ \
-        && cp ../go.mod ../go.sum extproc/
-    docker build . -t {{image_name}}:{{tag}} {{flags}}
-    rm -rf extproc
+# containerize the examples
+containerize tag=image_tag *flags="":
+    cd .. && docker build -f examples/Dockerfile -t {{image_name}}:{{tag}} . {{flags}}
 
+# run the examples in a container setup with envoy and an echo server
 up:
-    just containerize compose
-    docker compose up
+    cd .. && docker compose -f examples/compose.yaml up --build
 
-call path="/" method="GET" *flags="": 
+# stop the examples in a container setup with envoy and an echo server
+down:
+    cd .. && docker compose -f examples/compose.yaml down
+
+# run a curl command against the example envoy setup; use flags for extra data
+call method="GET" path="/" *flags="": 
     curl -X {{method}} localhost:8080{{path}} {{flags}} -vvv -s | jq .
 
-down:
-    docker compose down
+# run a curl command against the example envoy setup; use flags for extra data
+metrics: 
+    curl -X GET localhost:9090/metrics

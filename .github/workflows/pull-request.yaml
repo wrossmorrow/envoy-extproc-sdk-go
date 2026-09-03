@@ -1,0 +1,71 @@
+name: Pull Request Checks
+on: 
+  push:
+    branches: 
+      - main
+  pull_request: {}
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Check build(s)
+        run: |
+          go build -o /dev/null ./...
+          (cd examples && go build -o /dev/null ./...)
+          (cd test && go build -o /dev/null ./...)
+      # test/Dockerfile is covered by the integration job, but o/w examples/Dockerfile not covered
+      - name: Check example image build
+        run: docker build -f examples/Dockerfile -t extproc-examples:ci .
+  vet-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Vet the main library
+        run: |
+          go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@latest
+          go vet -vettool=$(go env GOPATH)/bin/shadow ./...
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Unit tests
+        run: go test -v -race ./...
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Start compose setup
+        run: docker compose -f test/compose.yaml up --build -d --wait --wait-timeout 90
+      - name: Run tests
+        working-directory: test
+        run: go test -v ./...
+      - name: Dump compose state on failure
+        if: failure()
+        run: |
+          docker compose -f test/compose.yaml ps
+          docker inspect --format '{{.Name}} {{if .State.Health}}{{.State.Health.Status}}{{range .State.Health.Log}} exit={{.ExitCode}} out={{println .Output}}{{end}}{{else}}(no healthcheck){{end}}' $(docker compose -f test/compose.yaml ps -aq)
+          docker compose -f test/compose.yaml logs --no-color --timestamps
+      - name: Stop compose setup
+        if: always()
+        run: docker compose -f test/compose.yaml down --volumes

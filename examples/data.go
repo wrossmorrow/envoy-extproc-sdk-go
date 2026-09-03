@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/google/uuid"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
@@ -45,9 +47,16 @@ func (s *dataRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, t
 	return ctx.ContinueRequest()
 }
 
+func (s *dataRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
+}
+
+func (s *dataRequestProcessor) Close(gracePeriodSeconds int32) error {
+	log.Printf("Closing %s", s.GetName())
+	return nil
+}
+
 func (s *dataRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
 	s.opts = opts
 	return nil
 }
-
-func (s *dataRequestProcessor) Finish() {}

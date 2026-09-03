@@ -12,15 +12,23 @@ tidy:
 
 # format code
 format:
-    go fmt ./*.go
+    go fmt ./...
 
-# run unit tests (TBD)
+# run linter
+lint:
+    golangci-lint run ./...
+
+# run vetter
+vet:
+    go vet -vettool=$(go env GOPATH)/bin/shadow ./...
+
+# run unit tests
 unit-test: 
-    echo "TBD" && exit 1
+    go test -v ./...
 
-# run integration tests (TBD)
+# run integration tests
 integration-test: 
-    echo "TBD" && exit 1
+    cd test && just up -d --wait --wait-timeout 90 && just test ; STATUS=$? ; just down --volumes ; exit ${STATUS}
 
 # run tests with coverage (TBD)
 coverage: 
@@ -32,7 +40,7 @@ run example="noop":
 
 # build binary (variadic flags supported)
 build *flags="":
-    go build {{flags}}
+    go build {{flags}} ./...
 
 # tag for a release
 tag version="":
