@@ -24,6 +24,7 @@ var processors = map[string]processor{
 	"dedup":   &dedupRequestProcessor{},
 	"masker":  &maskerRequestProcessor{},
 	"echo":    &echoRequestProcessor{},
+	"router":  &routingRequestProcessor{},
 }
 
 func parseArgs(args []string) (sopts *ep.ServerOptions, popts *ep.ProcessingOptions, nonFlagArgs []string) {

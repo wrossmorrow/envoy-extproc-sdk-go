@@ -168,6 +168,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 	switch req := procReq.Request.(type) {
 	case *extprocv3.ProcessingRequest_RequestHeaders:
 		phase = REQUEST_PHASE_REQUEST_HEADERS
+		rc.setPhase(phase)
 		s.logger.Debug("Processing request Headers", slog.Any("request", req))
 		s.metrics.TotalRequestHeaders.Inc()
 
@@ -189,6 +190,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	case *extprocv3.ProcessingRequest_RequestBody:
 		phase = REQUEST_PHASE_REQUEST_BODY
+		rc.setPhase(phase)
 		s.logger.Debug("Processing request Body", slog.Any("request", req))
 		s.metrics.TotalRequestBody.Inc()
 
@@ -203,6 +205,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	case *extprocv3.ProcessingRequest_RequestTrailers:
 		phase = REQUEST_PHASE_REQUEST_TRAILERS
+		rc.setPhase(phase)
 		s.logger.Debug("Processing request Trailers", slog.Any("request", req))
 		s.metrics.TotalRequestTrailers.Inc()
 
@@ -222,6 +225,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		phase = REQUEST_PHASE_RESPONSE_HEADERS
+		rc.setPhase(phase)
 		s.logger.Debug("Processing response Headers", slog.Any("request", req))
 		s.metrics.TotalResponseHeaders.Inc()
 
@@ -249,6 +253,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
 		phase = REQUEST_PHASE_RESPONSE_BODY
+		rc.setPhase(phase)
 		s.logger.Debug("Processing response Body", slog.Any("request", req))
 		s.metrics.TotalResponseBody.Inc()
 
@@ -267,6 +272,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
 		phase = REQUEST_PHASE_RESPONSE_TRAILERS
+		rc.setPhase(phase)
 		s.logger.Debug("Processing response Trailers", slog.Any("request", req))
 		s.metrics.TotalResponseTrailers.Inc()
 
