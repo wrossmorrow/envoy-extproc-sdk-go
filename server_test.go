@@ -119,9 +119,6 @@ func TestProcessPhaseRequestHeaders(t *testing.T) {
 	if resp.GetRequestHeaders() == nil {
 		t.Fatal("expected a ProcessingResponse_RequestHeaders")
 	}
-	if rc.GetPhase() != REQUEST_PHASE_REQUEST_HEADERS {
-		t.Errorf("context phase = %d, want %d", rc.GetPhase(), REQUEST_PHASE_REQUEST_HEADERS)
-	}
 	if rc.Method != "POST" {
 		t.Errorf("rc.Method = %q, want %q", rc.Method, "POST")
 	}

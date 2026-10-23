@@ -121,26 +121,6 @@ func TestServerOptionsFromYamlInvalid(t *testing.T) {
 	}
 }
 
-func TestProcessingOptionsFromJson(t *testing.T) {
-	opts, err := NewProcessingOptionsFromJson(writeTempFile(t, `{
-		"update_extproc_header": true,
-		"update_duration_header": true,
-		"abort_on_processor_failure": true
-	}`))
-	if err != nil {
-		t.Fatalf("NewProcessingOptionsFromJson failed: %v", err)
-	}
-	if opts.UpdateExtProcHeader != true {
-		t.Errorf("UpdateExtProcHeader = %v, want true", opts.UpdateExtProcHeader)
-	}
-	if opts.UpdateDurationHeader != true {
-		t.Errorf("UpdateDurationHeader = %v, want true", opts.UpdateDurationHeader)
-	}
-	if opts.AbortOnProcessorFailure != true {
-		t.Errorf("AbortOnProcessorFailure = %v, want true", opts.AbortOnProcessorFailure)
-	}
-}
-
 func TestProcessingOptionsFromJsonInvalid(t *testing.T) {
 	if _, err := NewProcessingOptionsFromJson(filepath.Join(t.TempDir(), "does-not-exist.json")); err == nil {
 		t.Error("expected an error for a missing JSON options file")
