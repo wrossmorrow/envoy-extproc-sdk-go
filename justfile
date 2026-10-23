@@ -26,6 +26,10 @@ vet:
 unit-test: 
     go test -v ./...
 
+# run unit tests
+test:
+    go test ./...
+
 # run integration tests
 integration-test: 
     cd test && just up -d --wait --wait-timeout 90 && just test ; STATUS=$? ; just down --volumes ; exit ${STATUS}
