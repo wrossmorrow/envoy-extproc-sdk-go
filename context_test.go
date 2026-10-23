@@ -17,6 +17,32 @@ func TestRequestContextSetValueWithoutHeaders(t *testing.T) {
 	}
 }
 
+func TestRequestContextGetValue(t *testing.T) {
+	rc := newRequestContext()
+	if err := rc.SetValue("k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := rc.GetValue("k"); err != nil || v != "v" {
+		t.Errorf("GetValue(%q) = %v, %v; want %q, nil", "k", v, err, "v")
+	}
+	if _, err := rc.GetValue("missing"); err == nil {
+		t.Error("expected an error for a value that was never set")
+	}
+}
+
+func TestRequestContextSetValueOverwrites(t *testing.T) {
+	rc := newRequestContext()
+	if err := rc.SetValue("k", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.SetValue("k", "second"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := rc.GetValue("k"); err != nil || v != "second" {
+		t.Errorf("GetValue(%q) = %v, %v; want %q, nil", "k", v, err, "second")
+	}
+}
+
 func TestCancelRequestRejectsInvalidHeaderValue(t *testing.T) {
 	rc := newRequestContext()
 	if err := rc.ResetPhase(); err != nil {
