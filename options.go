@@ -58,9 +58,9 @@ func NewServerOptionsFromYaml(filePath string) (*ServerOptions, error) {
 }
 
 type ProcessingOptions struct {
-	UpdateExtProcHeader     bool
-	UpdateDurationHeader    bool
-	AbortOnProcessorFailure bool
+	UpdateExtProcHeader     bool `json:"update_extproc_header" yaml:"update_extproc_header"`
+	UpdateDurationHeader    bool `json:"update_duration_header" yaml:"update_duration_header"`
+	AbortOnProcessorFailure bool `json:"abort_on_processor_failure" yaml:"abort_on_processor_failure"`
 }
 
 func NewDefaultProcessingOptions() *ProcessingOptions {
