@@ -168,7 +168,6 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 	switch req := procReq.Request.(type) {
 	case *extprocv3.ProcessingRequest_RequestHeaders:
 		phase = REQUEST_PHASE_REQUEST_HEADERS
-		rc.setPhase(phase)
 		s.logger.Debug("Processing request Headers", slog.Any("request", req))
 		s.metrics.TotalRequestHeaders.Inc()
 
@@ -183,6 +182,9 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			return nil, phase, err
 		}
 		rc.EndOfStream = h.EndOfStream
+		// initReqCtx resets the phase, so set it again once the context is
+		// initialized; processors must observe the phase they are handling
+		rc.setPhase(phase)
 
 		err = processor.ProcessRequestHeaders(rc, rc.AllHeaders) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
