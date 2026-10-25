@@ -66,6 +66,15 @@ func (s *testingRequestProcessor) GetOptions() *ep.ProcessingOptions {
 
 func (s *testingRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
 	reportHeaderParsing(ctx, headers)
+
+	// optional upstream override, exercising clear-route-cache driven upstream
+	// changes: rewrite the authority and clear the route cache so envoy
+	// recomputes the route
+	if upstream, ok := headers.Get("x-route-to-upstream"); ok {
+		ctx.OverwriteHeader(":authority", ep.HeaderValue{RawValue: []byte(upstream)})
+		ctx.ClearRouteCache()
+	}
+
 	return ctx.ContinueRequest()
 }
 

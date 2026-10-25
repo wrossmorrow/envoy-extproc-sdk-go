@@ -434,6 +434,111 @@ func TestProcessPhaseMetricsErrorPath(t *testing.T) {
 	}
 }
 
+// clearRouteProcessor is a minimal external processor that clears the route
+// cache, as an upstream-changing processor does when it rewrites a routed header
+// such as `:authority`.
+type clearRouteProcessor struct {
+	name  string
+	opts  *ProcessingOptions
+	clear bool
+}
+
+func (p *clearRouteProcessor) GetName() string                { return p.name }
+func (p *clearRouteProcessor) GetOptions() *ProcessingOptions { return p.opts }
+
+func (p *clearRouteProcessor) ProcessRequestHeaders(ctx *RequestContext, headers AllHeaders) error {
+	if p.clear {
+		ctx.ClearRouteCache()
+	}
+	return ctx.ContinueRequest()
+}
+
+func (p *clearRouteProcessor) ProcessRequestTrailers(ctx *RequestContext, trailers AllHeaders) error {
+	return ctx.ContinueRequest()
+}
+func (p *clearRouteProcessor) ProcessRequestBody(ctx *RequestContext, body []byte) error {
+	return ctx.ContinueRequest()
+}
+func (p *clearRouteProcessor) ProcessResponseHeaders(ctx *RequestContext, headers AllHeaders) error {
+	return ctx.ContinueRequest()
+}
+func (p *clearRouteProcessor) ProcessResponseBody(ctx *RequestContext, body []byte) error {
+	return ctx.ContinueRequest()
+}
+func (p *clearRouteProcessor) ProcessResponseTrailers(ctx *RequestContext, trailers AllHeaders) error {
+	return ctx.ContinueRequest()
+}
+func (p *clearRouteProcessor) ErrorHandler(ctx *RequestContext, phase int, err error) {}
+func (p *clearRouteProcessor) Close(gracePeriodSeconds int32) error                   { return nil }
+
+func TestProcessPhaseClearRouteCachePropagatesToEnvoyResponse(t *testing.T) {
+	t.Run("processor clears route cache", func(t *testing.T) {
+		proc := &clearRouteProcessor{name: "router", opts: NewDefaultProcessingOptions(), clear: true}
+		s := newTestServer(t, proc, proc.opts)
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		resp, phase, err := s.processPhase(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_RequestHeaders{
+				RequestHeaders: &extprocv3.HttpHeaders{
+					Headers: &corev3.HeaderMap{Headers: []*corev3.HeaderValue{
+						{Key: ":method", RawValue: []byte("GET")},
+					}},
+				},
+			},
+		}, proc, rc)
+		if err != nil {
+			t.Fatalf("processPhase returned error: %v", err)
+		}
+		if phase != REQUEST_PHASE_REQUEST_HEADERS {
+			t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_HEADERS)
+		}
+
+		cr := resp.GetRequestHeaders().GetResponse()
+		if cr == nil {
+			t.Fatal("expected a CommonResponse in the request headers response")
+		}
+		if !cr.GetClearRouteCache() {
+			t.Error("expected ClearRouteCache to be set in the envoy-facing response when the processor clears it")
+		}
+	})
+
+	t.Run("processor does not clear route cache", func(t *testing.T) {
+		proc := &clearRouteProcessor{name: "router", opts: NewDefaultProcessingOptions(), clear: false}
+		s := newTestServer(t, proc, proc.opts)
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		resp, phase, err := s.processPhase(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_RequestHeaders{
+				RequestHeaders: &extprocv3.HttpHeaders{
+					Headers: &corev3.HeaderMap{Headers: []*corev3.HeaderValue{
+						{Key: ":method", RawValue: []byte("GET")},
+					}},
+				},
+			},
+		}, proc, rc)
+		if err != nil {
+			t.Fatalf("processPhase returned error: %v", err)
+		}
+		if phase != REQUEST_PHASE_REQUEST_HEADERS {
+			t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_HEADERS)
+		}
+
+		cr := resp.GetRequestHeaders().GetResponse()
+		if cr == nil {
+			t.Fatal("expected a CommonResponse in the request headers response")
+		}
+		if cr.GetClearRouteCache() {
+			t.Error("expected ClearRouteCache to default to false")
+		}
+	})
+}
+
 type erroringProcessor struct {
 	name string
 	opts *ProcessingOptions
