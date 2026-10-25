@@ -275,7 +275,7 @@ func check(t *testing.T, r *TesterRequest, s *TesterResponse) {
 	}
 
 	if len(r.Body.RemoveResponseHeaders) > 0 {
-		for _, n := range r.Body.RemoveRequestHeaders {
+		for _, n := range r.Body.RemoveResponseHeaders {
 			_, ok := s.GetHeaderByName(n)
 			if ok {
 				t.Errorf("Response header removed but value was returned in response")
