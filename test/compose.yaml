@@ -30,6 +30,7 @@ services:
     build:
       context: ..
       dockerfile: test/Dockerfile
+    command: ["--update-duration-header"]
     ports:
       - '50051:50051'
       - '9090:9090'

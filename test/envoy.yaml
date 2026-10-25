@@ -38,7 +38,7 @@ static_resources:
                           cluster_name: test
                         timeout: 30s
                       failure_mode_allow: false
-                      message_timeout: 2s # long for testing
+                      message_timeout: 60s # raised from 2s; capped at 60s for delayed phases / async processing during load testing
                       processing_mode:
                         request_header_mode: SEND
                         response_header_mode: SEND
