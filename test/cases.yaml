@@ -44,7 +44,7 @@ cases:
       headers: {}
       body:
         remove_response_headers:
-          - date
+          - x-echo-server-received
   - name: overwrite a response header
     request:
       headers: {}
