@@ -27,6 +27,22 @@ static_resources:
                               disabled: true
                         - match:
                             prefix: "/"
+                            headers:
+                              - name: ":authority"
+                                string_match:
+                                  exact: "upstream"
+                          route:
+                            cluster: upstream
+                        - match:
+                            prefix: "/"
+                            headers:
+                              - name: ":authority"
+                                string_match:
+                                  exact: "upstream-copy"
+                          route:
+                            cluster: upstream-copy
+                        - match:
+                            prefix: "/"
                           route:
                             cluster: upstream
                 http_filters:
@@ -38,6 +54,8 @@ static_resources:
                           cluster_name: test
                         timeout: 30s
                       failure_mode_allow: false
+                      mutation_rules:
+                        allow_all_routing: true
                       message_timeout: 60s # raised from 2s; capped at 60s for delayed phases / async processing during load testing
                       processing_mode:
                         request_header_mode: SEND
@@ -69,6 +87,26 @@ static_resources:
                 address:
                   socket_address:
                     address: upstream
+                    port_value: 8000
+  - name: upstream-copy
+    connect_timeout: 0.250s
+    type: LOGICAL_DNS
+    lb_policy: LEAST_REQUEST
+    dns_lookup_family: V4_ONLY
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http_protocol_options: {}
+    load_assignment:
+      cluster_name: upstream-copy
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                hostname: upstream-copy
+                address:
+                  socket_address:
+                    address: upstream-copy
                     port_value: 8000
   - name: test
     dns_lookup_family: V4_ONLY

@@ -51,6 +51,12 @@ cases:
       body:
         overwrite_response_headers:
           content-type: "test/plain"
+  - name: change upstream via clear route cache
+    description: external processor rewrites :authority and clears the route cache
+    request:
+      headers:
+        x-route-to-upstream: "upstream-copy"
+      body: {}
   # TODO: requires work
   - name: cancel a request
     request:

@@ -176,6 +176,68 @@ func TestContinueRequestHonorsClearRouteCache(t *testing.T) {
 	}
 }
 
+// An external processor that clears the route cache (i.e. is changing the
+// upstream, typically by rewriting a routed header such as `:authority`) must
+// surface that decision in the envoy-facing response, or envoy will keep serving
+// from its cached route.
+func TestGetResponsePropagatesClearRouteCache(t *testing.T) {
+	t.Run(RequestPhaseToString(REQUEST_PHASE_REQUEST_HEADERS), func(t *testing.T) {
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		rc.ClearRouteCache()
+		resp, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+		if err != nil {
+			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_HEADERS, err)
+		}
+		if !resp.GetRequestHeaders().GetResponse().GetClearRouteCache() {
+			t.Error("expected ClearRouteCache to be set in the envoy-facing response when the processor clears it")
+		}
+
+		rc.UnClearRouteCache()
+		resp, err = rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+		if err != nil {
+			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_HEADERS, err)
+		}
+		if resp.GetRequestHeaders().GetResponse().GetClearRouteCache() {
+			t.Error("expected ClearRouteCache to be cleared after UnClearRouteCache")
+		}
+	})
+
+	t.Run(RequestPhaseToString(REQUEST_PHASE_REQUEST_BODY), func(t *testing.T) {
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		rc.ClearRouteCache()
+		resp, err := rc.GetResponse(REQUEST_PHASE_REQUEST_BODY)
+		if err != nil {
+			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_BODY, err)
+		}
+		if !resp.GetRequestBody().GetResponse().GetClearRouteCache() {
+			t.Error("expected ClearRouteCache to be set in the envoy-facing response for the request body phase")
+		}
+	})
+
+	t.Run("default is false", func(t *testing.T) {
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		resp, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+		if err != nil {
+			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_HEADERS, err)
+		}
+		if resp.GetRequestHeaders().GetResponse().GetClearRouteCache() {
+			t.Error("expected ClearRouteCache to default to false")
+		}
+	})
+}
+
 func TestGetResponseReturnsTypedResponsePerPhase(t *testing.T) {
 	cases := []struct {
 		phase int
