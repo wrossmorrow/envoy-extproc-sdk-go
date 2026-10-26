@@ -103,6 +103,31 @@ In particular, the methods
 ```
 define request phase responses for "continuing" and "responding immediately". Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling.
 
+### Stream Cancellation
+
+When the client goes away mid-stream (or envoy otherwise tears down the `ext_proc` stream), the SDK ends the stream gracefully rather than reporting a processing failure.
+
+Cancellation can reach the SDK in one of two ways during the stream:
+
+* the receive of the next message fails with a cancellation error (the client went away while envoy was still sending request messages), or
+* a send of a `ProcessingResponse` fails with a cancellation error (envoy tore the stream down while the final response was being sent).
+
+In both cases the SDK still invokes the processor's `ErrorHandler` with the cancellation error and the last known phase, so that an implementation can clean up any state it holds for the in-flight phase. The stream itself is not marked errored, no phase error is counted, and no error status is returned. A processor that stores per-request state should therefore treat an `ErrorHandler` call carrying a cancellation (`status.Code(err) == codes.Canceled`, or `errors.Is(err, context.Canceled)`) as a signal to clean up, rather than as a processing failure:
+
+The same handling applies when the stream context transitions to done between messages (the receive-loop `ctx.Done()` safety net): a cancellation there also ends the stream gracefully and notifies the error handler with the last known phase. As with the cases above, a deadline exceeded (`codes.DeadlineExceeded`) is treated as a processing error instead.
+
+```go
+func (p *MyProcessor) ErrorHandler(ctx *extproc.RequestContext, phase int, err error) {
+	if status.Code(err) == codes.Canceled { // or errors.Is(err, context.Canceled)
+		p.cleanup(ctx, phase)
+		return
+	}
+	// ...real processing error handling...
+}
+```
+
+Note that a stream deadline exceeded (`codes.DeadlineExceeded`) is treated as a processing error rather than a cancellation. When a send or receive fails because the time budget was exhausted, the SDK reports it through `ErrorHandler`, the error metrics, and an error status, since an operation the implementation intended (say, sending the final response back to envoy) did not complete. Whether a deadline-exceeded should instead be treated as graceful is a policy decision for the implementation, but it currently is not.
+
 ### Modifying Headers
 
 You can add headers to a response with the convenience methods
