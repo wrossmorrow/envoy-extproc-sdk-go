@@ -124,6 +124,8 @@ func (p *MyProcessor) ErrorHandler(ctx *extproc.RequestContext, phase int, err e
 }
 ```
 
+Note that a stream deadline exceeded (`codes.DeadlineExceeded`) is treated as a processing error rather than a cancellation. When a send or receive fails because the time budget was exhausted, the SDK reports it through `ErrorHandler`, the error metrics, and an error status, since an operation the implementation intended (say, sending the final response back to envoy) did not complete. Whether a deadline-exceeded should instead be treated as graceful is a policy decision for the implementation, but it currently is not.
+
 ### Modifying Headers
 
 You can add headers to a response with the convenience methods
