@@ -13,6 +13,7 @@ var wantMetricsNames = []string{
 	"extproc_phase_errors_total",
 	"extproc_total_streams",
 	"extproc_stream_duration_seconds",
+	"extproc_external_processing_seconds",
 	"extproc_total_request_headers",
 	"extproc_request_body_messages_total",
 	"extproc_total_request_trailers",
@@ -48,6 +49,30 @@ func TestMetricsRegisterExposesEveryCollector(t *testing.T) {
 		if !names[want] {
 			t.Errorf("gathered metrics are missing %q (got %v)", want, familyNames(families))
 		}
+	}
+}
+
+func TestMetricsExternalProcessingSeconds(t *testing.T) {
+	m := NewEmptyMetrics()
+	registry := prometheus.NewPedanticRegistry()
+	m.Register(registry)
+
+	m.ExternalProcessingSeconds.Observe(0.05)
+
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gathering metrics failed: %v", err)
+	}
+
+	family := findMetricFamily(t, families, "extproc_external_processing_seconds")
+	if got := family.GetType(); got != dto.MetricType_HISTOGRAM {
+		t.Errorf("extproc_external_processing_seconds type = %v, want %v", got, dto.MetricType_HISTOGRAM)
+	}
+	if len(family.GetMetric()) != 1 {
+		t.Fatalf("expected one sample for extproc_external_processing_seconds, got %v", len(family.GetMetric()))
+	}
+	if got := family.GetMetric()[0].GetHistogram().GetSampleSum(); got != 0.05 {
+		t.Errorf("extproc_external_processing_seconds sample_sum = %v, want 0.05", got)
 	}
 }
 

@@ -7,21 +7,22 @@ import (
 )
 
 type Metrics struct {
-	ActiveStreams         prometheus.Gauge
-	ErroredStreams        prometheus.Counter
-	PhaseErrors           prometheus.Counter
-	TotalStreams          prometheus.Counter
-	StreamDurationSeconds prometheus.Histogram
-	TotalRequestHeaders   prometheus.Counter
-	TotalRequestBody      prometheus.Counter
-	TotalRequestTrailers  prometheus.Counter
-	TotalResponseHeaders  prometheus.Counter
-	TotalResponseBody     prometheus.Counter
-	TotalResponseTrailers prometheus.Counter
-	TotalEmptyResponses   prometheus.Counter
-	BodyBytesReceived     prometheus.Counter
-	BodyBytesReturned     prometheus.Counter
-	ResponseSendErrors    prometheus.Counter
+	ActiveStreams             prometheus.Gauge
+	ErroredStreams            prometheus.Counter
+	PhaseErrors               prometheus.Counter
+	TotalStreams              prometheus.Counter
+	StreamDurationSeconds     prometheus.Histogram
+	ExternalProcessingSeconds prometheus.Histogram
+	TotalRequestHeaders       prometheus.Counter
+	TotalRequestBody          prometheus.Counter
+	TotalRequestTrailers      prometheus.Counter
+	TotalResponseHeaders      prometheus.Counter
+	TotalResponseBody         prometheus.Counter
+	TotalResponseTrailers     prometheus.Counter
+	TotalEmptyResponses       prometheus.Counter
+	BodyBytesReceived         prometheus.Counter
+	BodyBytesReturned         prometheus.Counter
+	ResponseSendErrors        prometheus.Counter
 }
 
 func NewEmptyMetrics() *Metrics {
@@ -54,6 +55,13 @@ func NewEmptyMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Name:                        "extproc_stream_duration_seconds",
 				Help:                        "Stream duration in seconds (native histogram).",
+				NativeHistogramBucketFactor: 1.1, // O(10%) resolution across any scale
+			},
+		),
+		ExternalProcessingSeconds: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Name:                        "extproc_external_processing_seconds",
+				Help:                        "External processing time in seconds (native histogram).",
 				NativeHistogramBucketFactor: 1.1, // O(10%) resolution across any scale
 			},
 		),

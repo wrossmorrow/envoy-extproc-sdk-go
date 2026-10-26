@@ -446,6 +446,30 @@ func TestProcessPhaseMetricsErrorPath(t *testing.T) {
 	}
 }
 
+func TestProcessStreamExternalProcessingDurationObserved(t *testing.T) {
+	// end-to-end over the fake stream: once the inbound stream is exhausted, the
+	// deferred stream cleanup observes both the stream duration and the external
+	// processing duration histograms
+	proc := newRecordingProcessor("test", NewDefaultProcessingOptions())
+	s := newTestServer(t, proc, proc.opts)
+
+	stream := newProcessStreamFake(context.Background(),
+		newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")}),
+	)
+	if err := s.Process(stream); err != nil {
+		t.Fatalf("Process returned error %v, want nil", err)
+	}
+
+	families := gatherRegisteredMetrics(t, s.metrics)
+	family := findMetricFamily(t, families, "extproc_external_processing_seconds")
+	if len(family.GetMetric()) == 0 {
+		t.Fatalf("no collected metrics for %q", "extproc_external_processing_seconds")
+	}
+	if got := family.GetMetric()[0].GetHistogram().GetSampleSum(); got <= 0 {
+		t.Errorf("extproc_external_processing_seconds sample_sum = %v, want > 0", got)
+	}
+}
+
 // clearRouteProcessor is a minimal external processor that clears the route
 // cache, as an upstream-changing processor does when it rewrites a routed header
 // such as `:authority`.
