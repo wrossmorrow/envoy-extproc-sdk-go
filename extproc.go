@@ -33,6 +33,8 @@ type RequestProcessor interface {
 	// ErrorHandler is called when an error occurs in this SDK during request
 	// processing. An implemented handler can implement any logic it likes.
 	// Phase is the "enum" constants from context.go.
+	// Stream cancellations (client going away mid-stream, envoy aborting) are
+	// not errors and do not reach this handler.
 	ErrorHandler(ctx *RequestContext, phase int, err error)
 
 	// Get notified this processor should shut down
@@ -45,6 +47,15 @@ type GenericExtProcServer struct {
 	options   *ProcessingOptions
 	metrics   *Metrics
 	logger    *slog.Logger
+}
+
+// isStreamCancelled reports whether err is a stream cancellation rather than a
+// failure encountered while processing. Cancellations occur when the client
+// goes away mid-stream or envoy aborts the stream; they are a normal end of
+// stream, not a processing error, and must not be surfaced through ErrorHandler
+// or the error metrics.
+func isStreamCancelled(err error) bool {
+	return err != nil && status.Code(err) == codes.Canceled
 }
 
 func (s *GenericExtProcServer) Close(gracePeriodSeconds int32) error {
@@ -97,7 +108,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			return nil
 		}
 		if err != nil {
-			if status.Code(err) == codes.Canceled {
+			if isStreamCancelled(err) {
 				s.logger.Debug("Processing stream cancelled", slog.String("error", err.Error()))
 				return nil
 			}
@@ -141,6 +152,13 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 
 		s.logger.Debug("Sending ProcessingResponse", slog.String("phase", phase_name), slog.Any("response", resp))
 		if err := srv.Send(resp); err != nil {
+			if isStreamCancelled(err) {
+				// the stream was cancelled (e.g. the downstream client went away and
+				// envoy tore the stream down); the phases themselves completed without
+				// the processor failing, so this is not a processing error
+				s.logger.Debug("Processing response send cancelled", slog.String("phase", phase_name), slog.String("error", err.Error()))
+				return nil
+			}
 			errored = true
 			s.metrics.ResponseSendErrors.Inc()
 			s.logger.Error("Send ProcessingResponse error", slog.String("phase", phase_name), slog.String("error", err.Error()))
