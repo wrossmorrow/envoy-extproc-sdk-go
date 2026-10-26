@@ -109,6 +109,9 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		}
 		if err != nil {
 			if isStreamCancelled(err) {
+				// the stream was cancelled; notify the handler so it can clean up, but
+				// this is not a processing error
+				s.processor.ErrorHandler(rc, rc.GetPhase(), err)
 				s.logger.Debug("Processing stream cancelled", slog.String("error", err.Error()))
 				return nil
 			}
@@ -154,8 +157,10 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 		if err := srv.Send(resp); err != nil {
 			if isStreamCancelled(err) {
 				// the stream was cancelled (e.g. the downstream client went away and
-				// envoy tore the stream down); the phases themselves completed without
-				// the processor failing, so this is not a processing error
+				// envoy tore the stream down); the phase itself completed without the
+				// processor failing, so this is a cancellation rather than a processing
+				// error, but still notify the handler so it can clean up
+				s.processor.ErrorHandler(rc, phase, err)
 				s.logger.Debug("Processing response send cancelled", slog.String("phase", phase_name), slog.String("error", err.Error()))
 				return nil
 			}

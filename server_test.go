@@ -615,6 +615,11 @@ func (f *processStreamFake) Send(m *extprocv3.ProcessingResponse) error {
 }
 
 func (f *processStreamFake) Recv() (*extprocv3.ProcessingRequest, error) {
+	if f.recvErr != nil {
+		err := f.recvErr
+		f.recvErr = nil
+		return nil, err
+	}
 	if f.recvIdx >= len(f.requests) {
 		return nil, io.EOF
 	}
@@ -748,13 +753,21 @@ func TestProcessSendErrorContextCanceledDuringResponseBodyIsGraceful(t *testing.
 		newHeadersRequest("response", false, &corev3.HeaderValue{Key: "content-type", RawValue: []byte("application/json")}),
 		newBodyRequest("response", []byte("{"), true),
 	)
-	stream.sendErrs = []error{status.Error(codes.Canceled, "context canceled")}
+	// the failure lands on the final send, i.e. the response body phase
+	stream.sendErrs = []error{nil, nil, status.Error(codes.Canceled, "context canceled")}
 
 	if err := s.Process(stream); err != nil {
 		t.Fatalf("Process returned error %v on stream cancellation during response send, want nil", err)
 	}
-	if proc.errorHandlerCalls != 0 {
-		t.Errorf("ErrorHandler called %d times for a context cancelled stream, want 0", proc.errorHandlerCalls)
+	// the handler is still notified (for cleanup), but the stream is not errored
+	if proc.errorHandlerCalls != 1 {
+		t.Fatalf("ErrorHandler called %d times on stream cancellation, want 1", proc.errorHandlerCalls)
+	}
+	if status.Code(proc.lastError) != codes.Canceled {
+		t.Errorf("ErrorHandler error = %v, want a cancellation error", proc.lastError)
+	}
+	if phase := proc.phases[len(proc.phases)-1]; phase != REQUEST_PHASE_RESPONSE_BODY {
+		t.Errorf("ErrorHandler phase = %d, want %d (RESPONSE_BODY)", phase, REQUEST_PHASE_RESPONSE_BODY)
 	}
 
 	families := gatherRegisteredMetrics(t, s.metrics)
@@ -811,16 +824,21 @@ func TestProcessStreamContextCanceledDuringRecvIsGraceful(t *testing.T) {
 	proc := newRecordingProcessor("test", NewDefaultProcessingOptions())
 	s := newTestServer(t, proc, proc.opts)
 
-	stream := newProcessStreamFake(context.Background(),
-		newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")}),
-	)
+	stream := newProcessStreamFake(context.Background())
 	stream.recvErr = status.Error(codes.Canceled, "context canceled")
 
 	if err := s.Process(stream); err != nil {
 		t.Fatalf("Process returned error %v on stream cancellation during receive, want nil", err)
 	}
-	if proc.errorHandlerCalls != 0 {
-		t.Errorf("ErrorHandler called %d times for a context cancelled stream, want 0", proc.errorHandlerCalls)
+	// the handler is still notified (for cleanup), with the last known phase
+	if proc.errorHandlerCalls != 1 {
+		t.Fatalf("ErrorHandler called %d times on stream cancellation, want 1", proc.errorHandlerCalls)
+	}
+	if status.Code(proc.lastError) != codes.Canceled {
+		t.Errorf("ErrorHandler error = %v, want a cancellation error", proc.lastError)
+	}
+	if phase := proc.phases[len(proc.phases)-1]; phase != REQUEST_PHASE_UNDETERMINED {
+		t.Errorf("ErrorHandler phase = %d, want %d (REQUEST_PHASE_UNDETERMINED, the last known phase here)", phase, REQUEST_PHASE_UNDETERMINED)
 	}
 
 	families := gatherRegisteredMetrics(t, s.metrics)
@@ -829,31 +847,5 @@ func TestProcessStreamContextCanceledDuringRecvIsGraceful(t *testing.T) {
 	}
 	if got := counterValue(t, families, "extproc_errored_streams"); got != 0 {
 		t.Errorf("extproc_errored_streams = %v, want 0 on a cancelled stream", got)
-	}
-}
-
-func TestProcessSendErrorContextCanceledAfterSuccessfulPhasesDoesNotCallErrorHandler(t *testing.T) {
-	// a cancellation arriving while envoy is still streaming a response must
-	// not be reported as a phase error, even after the phases themselves
-	// completed without incident
-	proc := newRecordingProcessor("test", NewDefaultProcessingOptions())
-	s := newTestServer(t, proc, proc.opts)
-
-	stream := newProcessStreamFake(context.Background(),
-		newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")}),
-		newHeadersRequest("response", false, &corev3.HeaderValue{Key: "content-type", RawValue: []byte("application/json")}),
-		newBodyRequest("response", []byte("hello"), true),
-	)
-	// the failure lands on the final send, i.e. the response body phase
-	stream.sendErrs = []error{nil, nil, status.Error(codes.Canceled, "context canceled")}
-
-	if err := s.Process(stream); err != nil {
-		t.Fatalf("Process returned error %v on stream cancellation during response send, want nil", err)
-	}
-	if proc.errorHandlerCalls != 0 {
-		t.Errorf("ErrorHandler called %d times for a context cancelled stream, want 0", proc.errorHandlerCalls)
-	}
-	if len(proc.phases) != 3 {
-		t.Errorf("processor phases = %v, want the three phases that completed without error", proc.phases)
 	}
 }

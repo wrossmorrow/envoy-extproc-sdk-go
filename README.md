@@ -103,6 +103,27 @@ In particular, the methods
 ```
 define request phase responses for "continuing" and "responding immediately". Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling.
 
+### Stream Cancellation
+
+When the client goes away mid-stream (or envoy otherwise tears down the `ext_proc` stream), the SDK ends the stream gracefully rather than reporting a processing failure.
+
+Cancellation can reach the SDK in one of two ways during the stream:
+
+* the receive of the next message fails with a cancellation error (the client went away while envoy was still sending request messages), or
+* a send of a `ProcessingResponse` fails with a cancellation error (envoy tore the stream down while the final response was being sent).
+
+In both cases the SDK still invokes the processor's `ErrorHandler` with the cancellation error and the last known phase, so that an implementation can clean up any state it holds for the in-flight phase. The stream itself is not marked errored, no phase error is counted, and no error status is returned. A processor that stores per-request state should therefore treat an `ErrorHandler` call carrying a cancellation (`status.Code(err) == codes.Canceled`, or `errors.Is(err, context.Canceled)`) as a signal to clean up, rather than as a processing failure:
+
+```go
+func (p *MyProcessor) ErrorHandler(ctx *extproc.RequestContext, phase int, err error) {
+	if status.Code(err) == codes.Canceled { // or errors.Is(err, context.Canceled)
+		p.cleanup(ctx, phase)
+		return
+	}
+	// ...real processing error handling...
+}
+```
+
 ### Modifying Headers
 
 You can add headers to a response with the convenience methods
