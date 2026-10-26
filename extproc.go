@@ -99,6 +99,7 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	defer func() {
 		dur := time.Since(ss).Seconds()
 		s.metrics.StreamDurationSeconds.Observe(float64(dur))
+		s.metrics.ExternalProcessingSeconds.Observe(float64(rc.Duration.Seconds()))
 	}()
 
 	for {
