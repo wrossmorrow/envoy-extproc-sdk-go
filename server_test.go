@@ -725,6 +725,38 @@ func counterValue(t *testing.T, families []*dto.MetricFamily, name string) float
 	return f.GetMetric()[0].GetCounter().GetValue()
 }
 
+func TestProcessStreamContextCanceledWhileIdleIsGraceful(t *testing.T) {
+	// the stream context transitioning to done between phases is handled like a
+	// stream cancellation: notify the error handler, end gracefully
+	proc := newRecordingProcessor("test", NewDefaultProcessingOptions())
+	s := newTestServer(t, proc, proc.opts)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := newProcessStreamFake(ctx)
+
+	if err := s.Process(stream); err != nil {
+		t.Fatalf("Process returned error %v on stream cancellation, want nil", err)
+	}
+	if proc.errorHandlerCalls != 1 {
+		t.Fatalf("ErrorHandler called %d times on stream cancellation, want 1", proc.errorHandlerCalls)
+	}
+	if !isStreamCancelled(proc.lastError) {
+		t.Errorf("ErrorHandler error = %v, want a cancellation error", proc.lastError)
+	}
+	if phase := proc.phases[len(proc.phases)-1]; phase != REQUEST_PHASE_UNDETERMINED {
+		t.Errorf("ErrorHandler phase = %d, want %d (REQUEST_PHASE_UNDETERMINED, no phase processed yet)", phase, REQUEST_PHASE_UNDETERMINED)
+	}
+
+	families := gatherRegisteredMetrics(t, s.metrics)
+	if got := counterValue(t, families, "extproc_phase_errors_total"); got != 0 {
+		t.Errorf("extproc_phase_errors_total = %v, want 0 on a cancelled stream", got)
+	}
+	if got := counterValue(t, families, "extproc_errored_streams"); got != 0 {
+		t.Errorf("extproc_errored_streams = %v, want 0 on a cancelled stream", got)
+	}
+}
+
 func TestIsStreamCancelled(t *testing.T) {
 	if isStreamCancelled(nil) {
 		t.Error("isStreamCancelled(nil) = true, want false")

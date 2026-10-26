@@ -1,6 +1,7 @@
 package extproc
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -55,7 +56,13 @@ type GenericExtProcServer struct {
 // stream, not a processing error, and must not be surfaced through ErrorHandler
 // or the error metrics.
 func isStreamCancelled(err error) bool {
-	return err != nil && status.Code(err) == codes.Canceled
+	if err == nil {
+		return false
+	}
+	if status.Code(err) == codes.Canceled {
+		return true
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func (s *GenericExtProcServer) Close(gracePeriodSeconds int32) error {
@@ -97,8 +104,16 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debug("Request stream terminated", slog.String("name", s.name))
-			return ctx.Err()
+			if isStreamCancelled(ctx.Err()) {
+				// the stream was cancelled; notify the handler so it can clean up, but
+				// this is not a processing error
+				s.processor.ErrorHandler(rc, rc.GetPhase(), ctx.Err())
+				s.logger.Debug("Request stream terminated", slog.String("name", s.name), slog.String("error", ctx.Err().Error()))
+				return nil
+			}
+			errored = true
+			s.processor.ErrorHandler(rc, rc.GetPhase(), ctx.Err())
+			return status.Errorf(codes.Unknown, "request stream terminated: %v", ctx.Err())
 
 		default:
 		}

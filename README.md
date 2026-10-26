@@ -114,6 +114,8 @@ Cancellation can reach the SDK in one of two ways during the stream:
 
 In both cases the SDK still invokes the processor's `ErrorHandler` with the cancellation error and the last known phase, so that an implementation can clean up any state it holds for the in-flight phase. The stream itself is not marked errored, no phase error is counted, and no error status is returned. A processor that stores per-request state should therefore treat an `ErrorHandler` call carrying a cancellation (`status.Code(err) == codes.Canceled`, or `errors.Is(err, context.Canceled)`) as a signal to clean up, rather than as a processing failure:
 
+The same handling applies when the stream context transitions to done between messages (the receive-loop `ctx.Done()` safety net): a cancellation there also ends the stream gracefully and notifies the error handler with the last known phase. As with the cases above, a deadline exceeded (`codes.DeadlineExceeded`) is treated as a processing error instead.
+
 ```go
 func (p *MyProcessor) ErrorHandler(ctx *extproc.RequestContext, phase int, err error) {
 	if status.Code(err) == codes.Canceled { // or errors.Is(err, context.Canceled)
