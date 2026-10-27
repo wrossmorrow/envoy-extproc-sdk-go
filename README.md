@@ -1,6 +1,10 @@
 
 # An Envoy ExternalProcessor SDK (go)
 
+## Statement on AI Use
+
+All commits authored by `wrossmorrow-pi-bot` (or perhaps `flint-agent`) are prepared by an agent using. [Recursive's flint](https://huggingface.co/RecursiveSI/flint) and the [pi harness](https://pi.dev/) in a [local sandbox](https://github.com/wrossmorrow/local-flint-pi). If other support is used the commits or PR descriptions should clarify.  
+
 ## Overview
 
 [`envoy`](https://www.envoyproxy.io/), one of the most powerful and widely used reverse proxies, is able to query an [ExternalProcessor](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter) in it's filter chain. Such a processor is a gRPC service that streams messages back and forth to modify HTTP requests being processed by `envoy`. This functionality opens the door to quickly and robustly implemently customized functionality at the edge, instead of in targeted services. While powerful, implementing these services still requires dealing with complicated `envoy` specs, managing information sharing across request phases, and an understanding of gRPC, none of which are exactly straightforward.
