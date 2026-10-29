@@ -34,8 +34,12 @@ type RequestProcessor interface {
 	// ErrorHandler is called when an error occurs in this SDK during request
 	// processing. An implemented handler can implement any logic it likes.
 	// Phase is the "enum" constants from context.go.
-	// Stream cancellations (client going away mid-stream, envoy aborting) are
-	// not errors and do not reach this handler.
+	// Stream cancellations (client going away mid-stream, envoy aborting) also
+	// reach this handler, so that an implementation can clean up any state it
+	// holds for the in-flight phase. They are not treated as processing errors:
+	// the stream itself is ended gracefully for a cancellation, no phase error is
+	// counted, and no error status is returned. See the Stream Cancellation notes
+	// in the README for details.
 	ErrorHandler(ctx *RequestContext, phase int, err error)
 
 	// Get notified this processor should shut down
