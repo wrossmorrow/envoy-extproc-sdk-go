@@ -149,7 +149,7 @@ GitHub Actions reads `conformance/envoy-versions.json` via `fromJson` to build `
 
 - **Protect downstream consumers from MVS floor bumps**: Avoid running blanket `go get -u` ([justfile](../justfile)) against root [go.mod](../go.mod) unless a bugfix or new API field specifically requires it; bumping `google.golang.org/grpc`, `google.golang.org/protobuf`, or the `go` directive in the root module forces every SDK consumer onto that minimum version under Go Minimal Version Selection (MVS).
 - **Isolate test-only dependencies**: Keep `testcontainers-go`, `h2c`/test utilities, and report tooling strictly in `conformance/go.mod` (or `test/go.mod`), never in root [go.mod](../go.mod).
-- **Go toolchain matrix**: Run root `unit-test` against both Go `oldstable` and `stable` (`1.25` and `1.26`).
+- **Go toolchain matrix**: Run root `unit-test` across the `go.mod` floor (`1.25`) and active supported Go releases (`1.26` and `1.27`).
 - **Keep module tidy in sync**: Add a `just tidy-all` recipe and a CI drift check (`go mod tidy && git diff --exit-code`) across root, `examples/`, `test/`, and `conformance/`.
 - **Deterministic Dockerfiles**: Replace `RUN go mod tidy && go mod download` in [examples/Dockerfile](../examples/Dockerfile) and [test/Dockerfile](../test/Dockerfile) with `RUN go mod download` and `go build -mod=readonly` so container builds cannot silently mutate module graphs.
 - **Pin external tools**: Pin `grafana/k6` in [justfile](../justfile) and pin `shadow` / `golangci-lint` versions in CI rather than pulling `:latest` / `@latest`.
