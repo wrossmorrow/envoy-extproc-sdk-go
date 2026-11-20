@@ -17,8 +17,8 @@ Several examples are provided here in the [examples](#examples), which can be re
 
 ## Usage
 
-> Upgrading from a `v0.0.x` release? See [MIGRATION.md](MIGRATION.md); this
-> release changes public API and shutdown behaviour.
+> Upgrading from an earlier release? See [MIGRATION.md](MIGRATION.md) for API
+> and runtime behavior notes (`v0.3.0`, `v0.2.x`, and `v0.1.0`).
 >
 > Looking for supported Envoy versions, `ext_proc` v3 feature coverage, or the
 > conformance roadmap? See [CONFORMANCE.md](CONFORMANCE.md) and
@@ -85,11 +85,11 @@ func main() {
     extproc.MustServe(serverOptions, myRequestProcessor{}, logger)
 }
 ```
-Internally the `GenericExtProcServer` constructed in `[Must]Serve` handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
+Internally the `GenericExtProcServer` constructed in `[Must]Serve` (or directly via `NewGenericExtProcServer` when registering on a custom `grpc.Server`) handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important.
 
 ### Context Data
 
-The `RequestContext` is initialized with request data when request headers are received, implying that the `envoy` configuration should always have `processing_mode.request_header_mode: SEND`. Basic request data (method, path etc) are only available in this phase. As shown in the spec above, this data includes
+The `RequestContext` is initialized with request data when request headers are received (requiring `processing_mode.request_header_mode: SEND`; `SKIP` is also supported for response-only processors). Basic request fields (`Scheme`, `Authority`, `Method`, `Path`, `FullPath`, `RequestID`) are only populated when request headers are sent. As shown in the spec above, this data includes
 * the HTTP `Scheme`
 * the `Authority` (host)
 * the HTTP `Method`
@@ -98,9 +98,9 @@ The `RequestContext` is initialized with request data when request headers are r
 * the request processing stream start time in `Started`
 * an accumulator `Duration` _for the time spent in external processing_
 * a flag `EndOfStream` from gRPC messages for header and body phases
-* a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages)
+* a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages; note Envoy only delivers body messages under `observability_mode: true` when body mode is `STREAMED`, `GRPC`, or `NONE`, not `BUFFERED`)
 
-This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `any`, so to use them you must re-type the data upoin retrieval. See the [data](#data) or [digest](#digest) examples.
+This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `any`, so to use them you must re-type the data upon retrieval. See the [data](#data) or [digest](#digest) examples.
 
 ### Forming Responses
 
@@ -109,7 +109,7 @@ We also provide some convenience routines for operating on process phase stream 
 In particular, the methods
 ```go
 (rc *RequestContext) ContinueRequest() error
-(rc *RequestContext) CancelRequest(status int32, headers map[string]string, body string) error
+(rc *RequestContext) CancelRequest(status int32, headers map[string]HeaderValue, body string) error
 ```
 define request phase responses for "continuing" and "responding immediately". Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling.
 
@@ -163,12 +163,17 @@ methods, requiring only names of headers to remove.
 
 ### Modifying Bodies
 
-Two methods help modify bodies:
+Four methods help modify bodies depending on your Envoy `processing_mode`:
 ```go
+// For BUFFERED body mode (updates content-length):
+(rc *RequestContext) ReplaceBody(body []byte) error
+(rc *RequestContext) ClearBody() error
+
+// For STREAMED body mode (leaves content-length untouched):
 (rc *RequestContext) ReplaceBodyChunk(body []byte) error
 (rc *RequestContext) ClearBodyChunk() error
 ```
-These are the two options currently available in `envoy` ExtProcs: replace a chunk and clear the entire chunk. Note that with buffered bodies the "chunks" should be the entire body. See the [masker](#masker) example discussed below.
+Use `ReplaceBody` / `ClearBody` when Envoy buffers the entire body, and `ReplaceBodyChunk` / `ClearBodyChunk` when streaming chunks. See the [masker](#masker) example discussed below.
 
 ## Examples
 
@@ -259,7 +264,7 @@ The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of 
 
 ### Masker
 
-The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBodyChunk`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data.
+The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBody`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data.
 
 ### Echo
 

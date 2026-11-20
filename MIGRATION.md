@@ -1,5 +1,31 @@
 # Migration notes
 
+## v0.3.0 (from v0.2.x)
+
+This release has no breaking source-level API changes — existing `RequestProcessor` implementations compile without modification.
+
+### Observability mode (`observability_mode: true`)
+
+`RequestContext.ObservabilityMode` exposes `ProcessingRequest.observability_mode`. When `true`, processor callbacks run and SDK metrics are recorded while `GenericExtProcServer` suppresses `ProcessingResponse` sends (keeping Envoy's `spurious_msgs_received == 0`), synthetic response headers (`UpdateExtProcHeader`, `UpdateDurationHeader`), and `extproc_empty_responses` increments.
+
+Note Envoy's `ExternalProcessor.observability_mode` requirement: Envoy only delivers body messages in observability mode when the body mode is `STREAMED`, `GRPC`, or `NONE` (not `BUFFERED`).
+
+### Exported server constructor (`NewGenericExtProcServer`)
+
+`NewGenericExtProcServer(processor, metrics, logger)` is now exported so callers can register `GenericExtProcServer` on custom `grpc.Server` instances or in-process test harnesses without calling `Serve`.
+
+### Header append actions enforced (`AddHeader`, `AppendHeader`, `UpdateHeader`)
+
+Envoy's `ext_proc` filter ignores `HeaderValueOption.append_action` and evaluates deprecated `HeaderValueOption.append` (defaulting to `false` / overwrite; see [`envoyproxy/envoy#48886`](https://github.com/envoyproxy/envoy/issues/48886)), which previously caused both `AddHeader` and `AppendHeader` to overwrite existing headers:
+
+- `AppendHeader` / `AppendHeaders` (`APPEND_IF_EXISTS_OR_ADD`) now set `HeaderValueOption.Append = true` so Envoy appends values rather than overwriting (including multi-filter `x-extproc-names` and `x-extproc-duration-ns`).
+- `AddHeader` / `AddHeaders` (`ADD_IF_ABSENT`) and `UpdateHeader(..., "OVERWRITE_IF_EXISTS")` are enforced against the phase headers observed on the stream. Callers that previously called `AddHeader` while unintentionally relying on overwriting an existing header should switch to `OverwriteHeader`. *(Under `request_header_mode: SKIP`, incoming request headers are not sent to the SDK, so request-header existence is not observed during `RequestBody`.)*
+
+## v0.2.0 – v0.2.1 (from v0.1.x)
+
+- **Graceful stream cancellation (`v0.2.0`)**: Mid-stream downstream or Envoy cancellations (`codes.Canceled` / `context.Canceled`) during `Recv`, `Send`, or idle `ctx.Done()` end the stream gracefully without incrementing error counters while still notifying `ErrorHandler` for per-request state cleanup.
+- **Processing duration metric (`v0.2.1`)**: Added the `extproc_external_processing_seconds` native histogram measuring cumulative processor callback time per stream (distinct from `extproc_stream_duration_seconds`).
+
 ## v0.1.0 (from v0.0.x)
 
 This release changes public API in several places and changes runtime behavior in a few more. Read the "Header representation" and "RequestProcessor" sections first; those affect every consumer.
