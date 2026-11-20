@@ -1409,4 +1409,318 @@ func runPhase2Scenarios(t *testing.T, env conformanceEnv) {
 			}
 		})
 	})
+
+	t.Run("protocol_config", func(t *testing.T) {
+		t.Run("body_modes_and_cross_phase_persistence", func(t *testing.T) {
+			cases := []struct {
+				name         string
+				path         string
+				wantReqBody  extproc.BodySendMode
+				wantRespBody extproc.BodySendMode
+				expectBodies bool
+			}{
+				{
+					name:         "none",
+					path:         "/mode/none/protocol-config",
+					wantReqBody:  extproc.BodyModeNone,
+					wantRespBody: extproc.BodyModeNone,
+					expectBodies: false,
+				},
+				{
+					name:         "buffered",
+					path:         "/mode/buffered/protocol-config",
+					wantReqBody:  extproc.BodyModeBuffered,
+					wantRespBody: extproc.BodyModeBuffered,
+					expectBodies: true,
+				},
+				{
+					name:         "streamed",
+					path:         "/mode/streamed/protocol-config",
+					wantReqBody:  extproc.BodyModeStreamed,
+					wantRespBody: extproc.BodyModeStreamed,
+					expectBodies: true,
+				},
+				{
+					name:         "buffered_partial",
+					path:         "/mode/buffered-partial/protocol-config",
+					wantReqBody:  extproc.BodyModeBufferedPartial,
+					wantRespBody: extproc.BodyModeBufferedPartial,
+					expectBodies: true,
+				},
+			}
+
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					caseID := "proto-cfg-" + tc.name
+					var mu sync.Mutex
+					observed := map[string]extproc.ProtocolConfig{}
+					var nilPhases []string
+					record := func(phaseName string, ctx *extproc.RequestContext) {
+						mu.Lock()
+						defer mu.Unlock()
+						if ctx.ProtocolConfig == nil {
+							nilPhases = append(nilPhases, phaseName)
+							return
+						}
+						observed[phaseName] = *ctx.ProtocolConfig
+					}
+
+					env.extprocSrv.Processor.Register(caseID, CaseHandler{
+						RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+							record("req_headers", ctx)
+							return ctx.ContinueRequest()
+						},
+						RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+							record("req_body", ctx)
+							return ctx.ContinueRequest()
+						},
+						ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+							record("resp_headers", ctx)
+							return ctx.ContinueRequest()
+						},
+						ResponseBody: func(ctx *extproc.RequestContext, _ []byte) error {
+							record("resp_body", ctx)
+							return ctx.ContinueRequest()
+						},
+					})
+					t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+					req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+tc.path, strings.NewReader("probe-body"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					req.Header.Set(CaseHeader, caseID)
+
+					resp, body := doRequest(t, env.http1Client, req)
+					if resp.StatusCode != http.StatusOK {
+						t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+					}
+
+					mu.Lock()
+					defer mu.Unlock()
+					if len(nilPhases) > 0 {
+						t.Fatalf("phases observed nil ProtocolConfig: %v", nilPhases)
+					}
+					expectedPhases := []string{"req_headers", "resp_headers"}
+					if tc.expectBodies {
+						expectedPhases = append(expectedPhases, "req_body", "resp_body")
+					}
+					wantCfg := extproc.ProtocolConfig{
+						RequestBodyMode:                         tc.wantReqBody,
+						ResponseBodyMode:                        tc.wantRespBody,
+						SendBodyWithoutWaitingForHeaderResponse: false,
+					}
+					for _, p := range expectedPhases {
+						got, ok := observed[p]
+						if !ok {
+							t.Errorf("phase %s did not run or record ProtocolConfig", p)
+							continue
+						}
+						if got != wantCfg {
+							t.Errorf("phase %s ProtocolConfig = %+v, want %+v", p, got, wantCfg)
+						}
+					}
+				})
+			}
+		})
+
+		t.Run("skip_request_headers_first_message", func(t *testing.T) {
+			caseID := "proto-cfg-skip-req-hdrs"
+			var mu sync.Mutex
+			var reqHdrsCalled atomic.Bool
+			observed := map[string]extproc.ProtocolConfig{}
+			var nilPhases []string
+			record := func(phaseName string, ctx *extproc.RequestContext) {
+				mu.Lock()
+				defer mu.Unlock()
+				if ctx.ProtocolConfig == nil {
+					nilPhases = append(nilPhases, phaseName)
+					return
+				}
+				observed[phaseName] = *ctx.ProtocolConfig
+			}
+
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					reqHdrsCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					record("resp_headers", ctx)
+					return ctx.ContinueRequest()
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					record("resp_body", ctx)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/mode/skip-req-headers/protocol-config", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			if reqHdrsCalled.Load() {
+				t.Error("RequestHeaders should not run under request_header_mode: SKIP")
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(nilPhases) > 0 {
+				t.Fatalf("phases observed nil ProtocolConfig: %v", nilPhases)
+			}
+			wantCfg := extproc.ProtocolConfig{
+				RequestBodyMode:                         extproc.BodyModeNone,
+				ResponseBodyMode:                        extproc.BodyModeBuffered,
+				SendBodyWithoutWaitingForHeaderResponse: false,
+			}
+			for _, p := range []string{"resp_headers", "resp_body"} {
+				got, ok := observed[p]
+				if !ok {
+					t.Errorf("phase %s did not run or record ProtocolConfig", p)
+					continue
+				}
+				if got != wantCfg {
+					t.Errorf("phase %s ProtocolConfig = %+v, want %+v", p, got, wantCfg)
+				}
+			}
+		})
+
+		t.Run("send_body_without_waiting_for_header_response", func(t *testing.T) {
+			caseID := "proto-cfg-no-wait"
+			var mu sync.Mutex
+			observed := map[string]extproc.ProtocolConfig{}
+			var nilPhases []string
+			record := func(phaseName string, ctx *extproc.RequestContext) {
+				mu.Lock()
+				defer mu.Unlock()
+				if ctx.ProtocolConfig == nil {
+					nilPhases = append(nilPhases, phaseName)
+					return
+				}
+				observed[phaseName] = *ctx.ProtocolConfig
+			}
+
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					record("req_headers", ctx)
+					return ctx.ContinueRequest()
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					record("req_body", ctx)
+					return ctx.ContinueRequest()
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					record("resp_headers", ctx)
+					return ctx.ContinueRequest()
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					record("resp_body", ctx)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/send-body-without-waiting/check", strings.NewReader("fast-stream-body"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			echo := decodeEcho(t, body)
+			if echo.Body != "fast-stream-body" {
+				t.Errorf("upstream body = %q, want fast-stream-body", echo.Body)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(nilPhases) > 0 {
+				t.Fatalf("phases observed nil ProtocolConfig: %v", nilPhases)
+			}
+			wantCfg := extproc.ProtocolConfig{
+				RequestBodyMode:                         extproc.BodyModeStreamed,
+				ResponseBodyMode:                        extproc.BodyModeStreamed,
+				SendBodyWithoutWaitingForHeaderResponse: true,
+			}
+			for _, p := range []string{"req_headers", "req_body", "resp_headers", "resp_body"} {
+				got, ok := observed[p]
+				if !ok {
+					t.Errorf("phase %s did not run or record ProtocolConfig", p)
+					continue
+				}
+				if got != wantCfg {
+					t.Errorf("phase %s ProtocolConfig = %+v, want %+v", p, got, wantCfg)
+				}
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+
+		t.Run("default_mode_override_preserves_response_body_mode", func(t *testing.T) {
+			caseID := "proto-cfg-default-override"
+			var respBodyCalled atomic.Bool
+			var hdrErr string
+
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					want := extproc.ProtocolConfig{
+						RequestBodyMode:  extproc.BodyModeNone,
+						ResponseBodyMode: extproc.BodyModeBuffered,
+					}
+					if ctx.ProtocolConfig == nil || *ctx.ProtocolConfig != want {
+						hdrErr = "unexpected ProtocolConfig in RequestHeaders"
+						return ctx.ContinueRequest()
+					}
+					mode := ctx.DefaultModeOverride()
+					mode.RequestBodyMode = extproc.BodyModeBuffered
+					return ctx.OverrideMode(mode)
+				},
+				RequestBody: func(ctx *extproc.RequestContext, body []byte) error {
+					if string(body) != "raw-req" {
+						t.Errorf("RequestBody = %q, want raw-req", string(body))
+					}
+					return ctx.ReplaceBody([]byte("mutated-req"))
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, body []byte) error {
+					respBodyCalled.Store(true)
+					if len(body) == 0 {
+						t.Error("expected non-empty buffered ResponseBody")
+					}
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/mode-override-resp-buffered/check", strings.NewReader("raw-req"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			if hdrErr != "" {
+				t.Fatal(hdrErr)
+			}
+			if !respBodyCalled.Load() {
+				t.Error("ResponseBody should remain BUFFERED when using DefaultModeOverride")
+			}
+			echo := decodeEcho(t, body)
+			if echo.Body != "mutated-req" {
+				t.Errorf("upstream echo.Body = %q, want mutated-req", echo.Body)
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+	})
 }
