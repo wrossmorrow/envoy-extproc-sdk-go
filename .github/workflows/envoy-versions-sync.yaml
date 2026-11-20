@@ -1,0 +1,32 @@
+name: Sync Supported Envoy Versions
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+      - name: Sync envoy-versions.json
+        working-directory: conformance
+        run: go run ./cmd/sync-versions --write envoy-versions.json
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: chore/sync-envoy-versions
+          commit-message: "chore(conformance): sync supported Envoy versions"
+          title: "chore(conformance): sync supported Envoy versions"
+          body: |
+            Automated weekly sync of `conformance/envoy-versions.json` against active Envoy release cycles from `https://endoflife.date/api/envoy.json`.
+          delete-branch: true

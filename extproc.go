@@ -54,6 +54,35 @@ type GenericExtProcServer struct {
 	logger    *slog.Logger
 }
 
+// NewGenericExtProcServer constructs a GenericExtProcServer wrapping processor.
+// If metrics or logger are nil, defaults are used; if processor.GetOptions() is
+// nil, NewDefaultProcessingOptions() is used.
+func NewGenericExtProcServer(processor RequestProcessor, metrics *Metrics, logger *slog.Logger) (*GenericExtProcServer, error) {
+	if processor == nil {
+		if logger != nil {
+			logger.Error("cannot process request stream without `processor`")
+		}
+		return nil, errors.New("processor is nil")
+	}
+	if metrics == nil {
+		metrics = NewEmptyMetrics()
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	opts := processor.GetOptions()
+	if opts == nil {
+		opts = NewDefaultProcessingOptions()
+	}
+	return &GenericExtProcServer{
+		name:      processor.GetName(),
+		processor: processor,
+		options:   opts,
+		metrics:   metrics,
+		logger:    logger,
+	}, nil
+}
+
 // isStreamCancelled reports whether err is a stream cancellation rather than a
 // failure encountered while processing. Cancellations occur when the client
 // goes away mid-stream or envoy aborts the stream; they are a normal end of

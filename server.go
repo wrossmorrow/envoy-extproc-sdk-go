@@ -62,21 +62,16 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(serverOptions.MaxConcurrentStreams)}
 	s := grpc.NewServer(sopts...)
 
-	name := processor.GetName()
-	opts := processor.GetOptions()
-	extproc := &GenericExtProcServer{
-		name:      name,
-		processor: processor,
-		options:   opts,
-		metrics:   metrics,
-		logger:    logger,
+	extprocSrv, err := NewGenericExtProcServer(processor, metrics, logger)
+	if err != nil {
+		return err
 	}
-	epb.RegisterExternalProcessorServer(s, extproc)
+	epb.RegisterExternalProcessorServer(s, extprocSrv)
 
 	health := NewReadyHealthServer()
 	hpb.RegisterHealthServer(s, health)
 
-	logger.Info("Starting extproc gRPC Server", slog.String("name", name), slog.Int("port", serverOptions.ExtProcPort))
+	logger.Info("Starting extproc gRPC Server", slog.String("name", extprocSrv.name), slog.Int("port", serverOptions.ExtProcPort))
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- s.Serve(lis) }()
@@ -130,7 +125,7 @@ func Serve(serverOptions *ServerOptions, processor RequestProcessor, logger *slo
 			logger.Error("metrics HTTP server shutdown error", slog.String("error", err.Error()))
 		}
 
-		if err := extproc.Close(serverOptions.TerminationGracePeriodSeconds); err != nil {
+		if err := extprocSrv.Close(serverOptions.TerminationGracePeriodSeconds); err != nil {
 			logger.Error("processor close error", slog.String("error", err.Error()))
 			return err
 		}

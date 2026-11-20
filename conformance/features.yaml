@@ -1,0 +1,213 @@
+features:
+  - id: headers_send
+    category: Headers
+    title: Request & response header callbacks (SEND)
+    sdk_status: supported
+    sdk_surface: "RequestProcessor.ProcessRequestHeaders, ProcessResponseHeaders"
+    tests:
+      - TestEnvoyConformance/headers_mutations_http1
+      - TestEnvoyConformance/headers_mutations_h2c
+      - TestEnvoyConformance/headers_multivalue_and_context_state
+    notes: "HTTP/1.1 & h2c; multi-value, RawValues, SplitList, RequestContext fields & cross-phase state"
+
+  - id: headers_skip_request
+    category: Headers
+    title: "Skip request headers (request_header_mode: SKIP)"
+    sdk_status: supported
+    sdk_surface: "newRequestContext"
+    tests:
+      - TestEnvoyConformance/skip_request_headers_response_mutation
+    notes: "Response-only processing without initial request headers phase"
+
+  - id: headers_representation
+    category: Headers
+    title: Header read representation (AllHeaders)
+    sdk_status: supported
+    sdk_surface: "Get, Values, RawValues, Has, SplitList"
+    tests:
+      - TestEnvoyConformance/headers_multivalue_and_context_state
+      - TestEnvoyConformance/multi_filter_chaining
+    notes: "Wire-order repeated headers, comma preservation, opt-in SplitList, raw non-UTF-8 bytes"
+
+  - id: headers_mutations_core
+    category: Headers
+    title: Header mutations (add absent, overwrite, remove)
+    sdk_status: supported
+    sdk_surface: "AddHeader*, OverwriteHeader*, RemoveHeader*"
+    tests:
+      - TestEnvoyConformance/headers_mutations_http1
+      - TestEnvoyConformance/headers_mutations_h2c
+    notes: "HTTP/1.1 & h2c"
+
+  - id: headers_append_action
+    category: Headers
+    title: "Header append_action on existing keys (ADD_IF_ABSENT, APPEND)"
+    sdk_status: partial
+    sdk_surface: "AddHeader*, AppendHeader*, UpdateHeader*"
+    tests:
+      - TestEnvoyConformance/header_append_action_envoy_gap
+    notes: "Envoy ext_proc ignores append_action (envoyproxy/envoy#48886); gated by CONFORMANCE_STRICT_APPEND_ACTION=1"
+
+  - id: body_none
+    category: Bodies
+    title: Body mode NONE (bodyless & pass-through)
+    sdk_status: supported
+    sdk_surface: "ProcessingMode NONE"
+    tests:
+      - TestEnvoyConformance/get_nobody_mode_none
+      - TestEnvoyConformance/post_with_body_mode_none
+    notes: "GET without body and POST pass-through without invoking body callbacks"
+
+  - id: body_buffered
+    category: Bodies
+    title: Buffered body processing (grow, shrink, clear, chunked upstream)
+    sdk_status: supported
+    sdk_surface: "Process*Body, ReplaceBody, ClearBody"
+    tests:
+      - TestEnvoyConformance/buffered_body_replace_grow_and_shrink
+      - TestEnvoyConformance/buffered_body_clear
+      - TestEnvoyConformance/http1_chunked_response_buffered_replace_and_clear
+    notes: "Updates Content-Length and handles chunked HTTP/1.1 upstream assembly"
+
+  - id: body_streamed
+    category: Bodies
+    title: Streamed body processing (chunk replace & clear)
+    sdk_status: supported
+    sdk_surface: "ReplaceBodyChunk, ClearBodyChunk"
+    tests:
+      - TestEnvoyConformance/streamed_body_chunks
+      - TestEnvoyConformance/streamed_request_and_response_clear_chunk
+    notes: "Multi-chunk HTTP/1.1 and HTTP/2 DATA frames without mutating Content-Length"
+
+  - id: body_buffered_partial
+    category: Bodies
+    title: Buffered-partial body processing
+    sdk_status: supported
+    sdk_surface: "Process*Body (BUFFERED_PARTIAL)"
+    tests:
+      - TestEnvoyConformance/buffered_partial_mode
+    notes: "Verified both within and exceeding per_request_buffer_limit_bytes"
+
+  - id: trailers_http1_and_h2c
+    category: Trailers
+    title: Request & response trailers (HTTP/1.1 & h2c)
+    sdk_status: supported
+    sdk_surface: "ProcessRequestTrailers, ProcessResponseTrailers"
+    tests:
+      - TestEnvoyConformance/http1_trailers_roundtrip
+      - TestEnvoyConformance/h2c_trailers_roundtrip
+    notes: "Chunked HTTP/1.1 & HTTP/2 trailer read/overwrite/add + counter metrics"
+
+  - id: routing_clear_route_cache
+    category: Routing & Local Reply
+    title: Route cache re-evaluation (header & body phases)
+    sdk_status: supported
+    sdk_surface: "ClearRouteCache, UnClearRouteCache"
+    tests:
+      - TestEnvoyConformance/clear_route_cache_upstream_switch
+      - TestEnvoyConformance/clear_route_cache_from_request_body
+    notes: "Upstream re-routing via :authority mutation and ClearRouteCache"
+
+  - id: immediate_response
+    category: Routing & Local Reply
+    title: Immediate local responses & trailer fallback
+    sdk_status: partial
+    sdk_surface: "CancelRequest"
+    tests:
+      - TestEnvoyConformance/immediate_response_request_headers
+      - TestEnvoyConformance/immediate_response_all_phases_and_trailers_fallback
+    notes: "GrpcStatus & Details not yet exposed; Envoy StatusCode omits 418"
+
+  - id: per_route_disabled
+    category: Routing & Local Reply
+    title: Per-route filter disable (ExtProcPerRoute)
+    sdk_status: supported
+    sdk_surface: "ExtProcPerRoute.disabled"
+    tests:
+      - TestEnvoyConformance/per_route_disabled_bypass
+    notes: "Processor bypassed when disabled on route"
+
+  - id: downstream_cancellation
+    category: Resilience & Chaining
+    title: Downstream client cancellation (send & recv)
+    sdk_status: supported
+    sdk_surface: "ErrorHandler (codes.Canceled)"
+    tests:
+      - TestEnvoyConformance/downstream_client_cancel_graceful
+    notes: "Graceful teardown with zero errored-stream or phase-error counts"
+
+  - id: message_timeout_and_fail_open
+    category: Resilience & Chaining
+    title: Per-message timeout (fail-closed & fail-open)
+    sdk_status: supported
+    sdk_surface: "message_timeout, failure_mode_allow"
+    tests:
+      - TestEnvoyConformance/message_timeout_fail_closed_and_fail_open
+    notes: "504 when failure_mode_allow=false; upstream pass-through when true"
+
+  - id: processor_failure_modes
+    category: Resilience & Chaining
+    title: Processor failure modes (continue vs abort)
+    sdk_status: supported
+    sdk_surface: "AbortOnProcessorFailure"
+    tests:
+      - TestEnvoyConformance/processor_error_continue_vs_abort
+    notes: "Covers continue-on-error, abort fail-closed, and abort fail-open"
+
+  - id: multi_filter_chaining
+    category: Resilience & Chaining
+    title: Multi-filter ext_proc chaining
+    sdk_status: supported
+    sdk_surface: "GenericExtProcServer"
+    tests:
+      - TestEnvoyConformance/multi_filter_chaining
+    notes: "Sequential two-filter header, raw-byte, and body mutations"
+
+  - id: observability_mode
+    category: Spec Extensions
+    title: "Observability mode (observability_mode: true)"
+    sdk_status: protocol_gap
+    sdk_surface: "GenericExtProcServer.Process"
+    tests:
+      - TestEnvoyConformance/observability_mode_envoy_gap
+    notes: "SDK currently sends EmptyContinueResponse; gated by CONFORMANCE_STRICT_OBSERVABILITY=1"
+
+  - id: protocol_config
+    category: Spec Extensions
+    title: Protocol configuration (protocol_config)
+    sdk_status: unsupported
+    sdk_surface: "ProcessingRequest.protocol_config"
+    tests: []
+    notes: "Not yet surfaced on RequestContext"
+
+  - id: mode_override
+    category: Spec Extensions
+    title: Dynamic mode override (mode_override)
+    sdk_status: unsupported
+    sdk_surface: "ProcessingResponse.mode_override"
+    tests: []
+    notes: "Not yet exposed"
+
+  - id: dynamic_metadata_and_attributes
+    category: Spec Extensions
+    title: Dynamic metadata & CEL attributes
+    sdk_status: unsupported
+    sdk_surface: "metadata_context, dynamic_metadata, attributes"
+    tests: []
+    notes: "Not yet exposed"
+
+  - id: override_message_timeout
+    category: Spec Extensions
+    title: Per-message timeout override
+    sdk_status: unsupported
+    sdk_surface: "override_message_timeout"
+    tests: []
+    notes: "Not yet exposed"
+
+  - id: continue_and_replace_and_full_duplex
+    category: Spec Extensions
+    title: CONTINUE_AND_REPLACE & full-duplex streaming
+    sdk_status: unsupported
+    sdk_surface: "CONTINUE_AND_REPLACE, FULL_DUPLEX_STREAMED, GRPC"
+    tests: []
+    notes: "Requires non-1:1 streaming model beyond RequestProcessor"

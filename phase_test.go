@@ -192,6 +192,9 @@ func TestGetResponsePropagatesClearRouteCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_HEADERS, err)
 		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+		}
 		if !resp.GetRequestHeaders().GetResponse().GetClearRouteCache() {
 			t.Error("expected ClearRouteCache to be set in the envoy-facing response when the processor clears it")
 		}
@@ -200,6 +203,9 @@ func TestGetResponsePropagatesClearRouteCache(t *testing.T) {
 		resp, err = rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
 		if err != nil {
 			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_HEADERS, err)
+		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 		}
 		if resp.GetRequestHeaders().GetResponse().GetClearRouteCache() {
 			t.Error("expected ClearRouteCache to be cleared after UnClearRouteCache")
@@ -217,6 +223,9 @@ func TestGetResponsePropagatesClearRouteCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_BODY, err)
 		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+		}
 		if !resp.GetRequestBody().GetResponse().GetClearRouteCache() {
 			t.Error("expected ClearRouteCache to be set in the envoy-facing response for the request body phase")
 		}
@@ -231,6 +240,9 @@ func TestGetResponsePropagatesClearRouteCache(t *testing.T) {
 		resp, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
 		if err != nil {
 			t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_REQUEST_HEADERS, err)
+		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 		}
 		if resp.GetRequestHeaders().GetResponse().GetClearRouteCache() {
 			t.Error("expected ClearRouteCache to default to false")
@@ -328,6 +340,9 @@ func TestGetResponseReturnsTypedResponsePerPhase(t *testing.T) {
 			resp, err := rc.GetResponse(c.phase)
 			if err != nil {
 				t.Fatalf("GetResponse(%d) returned error: %v", c.phase, err)
+			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 			}
 			c.check(t, resp)
 		})
@@ -427,6 +442,9 @@ func TestEmptyContinueResponsePerPhase(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EmptyContinueResponse(%d) returned error: %v", c.phase, err)
 			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+			}
 			c.check(t, resp)
 		})
 	}
@@ -467,6 +485,9 @@ func TestGetResponseImmediateResponse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetResponse(%d) returned error: %v", phase, err)
 			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+			}
 
 			ir := resp.GetImmediateResponse()
 			if ir == nil {
@@ -502,6 +523,9 @@ func TestGetResponseIgnoresImmediateResponseForTrailers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetResponse(%d) returned error: %v", REQUEST_PHASE_RESPONSE_TRAILERS, err)
 	}
+	if verr := resp.ValidateAll(); verr != nil {
+		t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+	}
 	if rc.GetPhase() != REQUEST_PHASE_RESPONSE_TRAILERS {
 		t.Errorf("context phase = %d, want %d", rc.GetPhase(), REQUEST_PHASE_RESPONSE_TRAILERS)
 	}
@@ -529,5 +553,107 @@ func TestGetResponseUnknownPhase(t *testing.T) {
 	}
 	if resp != nil {
 		t.Error("expected no response for an unknown phase")
+	}
+}
+
+func TestResponsesValidateAgainstPGVSchema(t *testing.T) {
+	applyHeaderMutations := func(t *testing.T, rc *RequestContext) {
+		t.Helper()
+		if err := rc.AddHeader("x-add", HeaderValue{RawValue: []byte("v1")}); err != nil {
+			t.Fatal(err)
+		}
+		if err := rc.AppendHeader("x-append", HeaderValue{Value: "v2"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := rc.OverwriteHeader("x-overwrite", HeaderValue{RawValue: []byte("v3")}); err != nil {
+			t.Fatal(err)
+		}
+		if err := rc.UpdateHeader("x-update", HeaderValue{RawValue: []byte("v4")}, "OVERWRITE_IF_EXISTS"); err != nil {
+			t.Fatal(err)
+		}
+		if err := rc.RemoveHeader("x-remove"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	headerPhases := []int{
+		REQUEST_PHASE_REQUEST_HEADERS,
+		REQUEST_PHASE_RESPONSE_HEADERS,
+		REQUEST_PHASE_REQUEST_TRAILERS,
+		REQUEST_PHASE_RESPONSE_TRAILERS,
+	}
+	for _, phase := range headerPhases {
+		t.Run("headers_"+RequestPhaseToString(phase), func(t *testing.T) {
+			rc := newRequestContext()
+			if err := rc.ResetPhase(); err != nil {
+				t.Fatal(err)
+			}
+			applyHeaderMutations(t, rc)
+			resp, err := rc.GetResponse(phase)
+			if err != nil {
+				t.Fatalf("GetResponse(%d) returned error: %v", phase, err)
+			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+			}
+		})
+	}
+
+	bodyPhases := []int{
+		REQUEST_PHASE_REQUEST_BODY,
+		REQUEST_PHASE_RESPONSE_BODY,
+	}
+	for _, phase := range bodyPhases {
+		for _, action := range []struct {
+			name string
+			fn   func(rc *RequestContext) error
+		}{
+			{"replace_body", func(rc *RequestContext) error { return rc.ReplaceBody([]byte("payload")) }},
+			{"clear_body", func(rc *RequestContext) error { return rc.ClearBody() }},
+			{"replace_body_chunk", func(rc *RequestContext) error { return rc.ReplaceBodyChunk([]byte("chunk")) }},
+			{"clear_body_chunk", func(rc *RequestContext) error { return rc.ClearBodyChunk() }},
+		} {
+			t.Run(RequestPhaseToString(phase)+"_"+action.name, func(t *testing.T) {
+				rc := newRequestContext()
+				if err := rc.ResetPhase(); err != nil {
+					t.Fatal(err)
+				}
+				if err := action.fn(rc); err != nil {
+					t.Fatal(err)
+				}
+				resp, err := rc.GetResponse(phase)
+				if err != nil {
+					t.Fatalf("GetResponse(%d) returned error: %v", phase, err)
+				}
+				if verr := resp.ValidateAll(); verr != nil {
+					t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+				}
+			})
+		}
+	}
+
+	immediatePhases := []int{
+		REQUEST_PHASE_REQUEST_HEADERS,
+		REQUEST_PHASE_REQUEST_BODY,
+		REQUEST_PHASE_RESPONSE_HEADERS,
+		REQUEST_PHASE_RESPONSE_BODY,
+	}
+	for _, phase := range immediatePhases {
+		t.Run("immediate_"+RequestPhaseToString(phase), func(t *testing.T) {
+			rc := newRequestContext()
+			if err := rc.ResetPhase(); err != nil {
+				t.Fatal(err)
+			}
+			if err := rc.CancelRequest(429, map[string]HeaderValue{"x-local": {RawValue: []byte("yes")}}, "rate-limited"); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := rc.GetResponse(phase)
+			if err != nil {
+				t.Fatalf("GetResponse(%d) returned error: %v", phase, err)
+			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+			}
+		})
 	}
 }

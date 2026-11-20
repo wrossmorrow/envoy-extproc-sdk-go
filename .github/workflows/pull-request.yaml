@@ -9,16 +9,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Check build(s)
         run: |
           go build -o /dev/null ./...
           (cd examples && go build -o /dev/null ./...)
           (cd test && go build -o /dev/null ./...)
+          (cd conformance && go build -o /dev/null ./... && go test -short ./...)
       # test/Dockerfile is covered by the integration job, but o/w examples/Dockerfile not covered
       - name: Check example image build
         run: docker build -f examples/Dockerfile -t extproc-examples:ci .
@@ -26,35 +27,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
-      - name: Vet the main library
+          go-version: '1.26'
+      - name: Vet the main library and conformance module
         run: |
-          go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@latest
+          go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.49.0
           go vet -vettool=$(go env GOPATH)/bin/shadow ./...
+          (cd conformance && go vet -vettool=$(go env GOPATH)/bin/shadow ./...)
   unit-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.25', '1.26', '1.27']
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version: ${{ matrix.go-version }}
       - name: Unit tests
         run: go test -v -race ./...
   integration-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Start compose setup
         run: docker compose -f test/compose.yaml up --build -d --wait --wait-timeout 90
       - name: Run tests

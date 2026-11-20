@@ -19,6 +19,10 @@ Several examples are provided here in the [examples](#examples), which can be re
 
 > Upgrading from a `v0.0.x` release? See [MIGRATION.md](MIGRATION.md); this
 > release changes public API and shutdown behaviour.
+>
+> Looking for supported Envoy versions, `ext_proc` v3 feature coverage, or the
+> conformance roadmap? See [CONFORMANCE.md](CONFORMANCE.md) and
+> [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md).
 
 ### TL;DR
 
