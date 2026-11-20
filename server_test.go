@@ -1007,3 +1007,270 @@ func TestProcessStreamContextCanceledDuringRecvIsGraceful(t *testing.T) {
 		t.Errorf("extproc_errored_streams = %v, want 0 on a cancelled stream", got)
 	}
 }
+
+type observabilityProcessor struct {
+	name     string
+	opts     *ProcessingOptions
+	phases   []int
+	obsModes []bool
+}
+
+func (p *observabilityProcessor) GetName() string                { return p.name }
+func (p *observabilityProcessor) GetOptions() *ProcessingOptions { return p.opts }
+
+func (p *observabilityProcessor) record(ctx *RequestContext, phase int) error {
+	p.phases = append(p.phases, phase)
+	p.obsModes = append(p.obsModes, ctx.ObservabilityMode)
+	_ = ctx.AddHeader("x-obs-should-suppress", HeaderValue{RawValue: []byte("1")})
+	return ctx.ContinueRequest()
+}
+
+func (p *observabilityProcessor) ProcessRequestHeaders(ctx *RequestContext, _ AllHeaders) error {
+	return p.record(ctx, REQUEST_PHASE_REQUEST_HEADERS)
+}
+
+func (p *observabilityProcessor) ProcessRequestBody(ctx *RequestContext, _ []byte) error {
+	return p.record(ctx, REQUEST_PHASE_REQUEST_BODY)
+}
+
+func (p *observabilityProcessor) ProcessRequestTrailers(ctx *RequestContext, _ AllHeaders) error {
+	return p.record(ctx, REQUEST_PHASE_REQUEST_TRAILERS)
+}
+
+func (p *observabilityProcessor) ProcessResponseHeaders(ctx *RequestContext, _ AllHeaders) error {
+	return p.record(ctx, REQUEST_PHASE_RESPONSE_HEADERS)
+}
+
+func (p *observabilityProcessor) ProcessResponseBody(ctx *RequestContext, _ []byte) error {
+	return p.record(ctx, REQUEST_PHASE_RESPONSE_BODY)
+}
+
+func (p *observabilityProcessor) ProcessResponseTrailers(ctx *RequestContext, _ AllHeaders) error {
+	return p.record(ctx, REQUEST_PHASE_RESPONSE_TRAILERS)
+}
+
+func (p *observabilityProcessor) ErrorHandler(_ *RequestContext, _ int, _ error) {}
+func (p *observabilityProcessor) Close(_ int32) error                            { return nil }
+
+func TestProcessObservabilityModeSuppressesResponses(t *testing.T) {
+	proc := &observabilityProcessor{
+		name: "obs",
+		opts: &ProcessingOptions{
+			UpdateExtProcHeader:  true,
+			UpdateDurationHeader: true,
+		},
+	}
+	s := newTestServer(t, proc, proc.opts)
+
+	reqHdrs := newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")})
+	reqHdrs.ObservabilityMode = true
+	reqBody := newBodyRequest("request", []byte("hello"), true)
+	reqBody.ObservabilityMode = true
+	respHdrs := newHeadersRequest("response", false, &corev3.HeaderValue{Key: ":status", RawValue: []byte("200")})
+	respHdrs.ObservabilityMode = true
+	respBody := newBodyRequest("response", []byte("world"), true)
+	respBody.ObservabilityMode = true
+
+	stream := newProcessStreamFake(context.Background(), reqHdrs, reqBody, respHdrs, respBody)
+	if err := s.Process(stream); err != nil {
+		t.Fatalf("Process returned error %v, want nil", err)
+	}
+
+	if len(stream.sent) != 0 {
+		t.Errorf("stream.sent = %d responses, want 0 in observability_mode", len(stream.sent))
+	}
+
+	wantPhases := []int{
+		REQUEST_PHASE_REQUEST_HEADERS,
+		REQUEST_PHASE_REQUEST_BODY,
+		REQUEST_PHASE_RESPONSE_HEADERS,
+		REQUEST_PHASE_RESPONSE_BODY,
+	}
+	if len(proc.phases) != len(wantPhases) {
+		t.Fatalf("recorded phases = %v, want %v", proc.phases, wantPhases)
+	}
+	for i, wp := range wantPhases {
+		if proc.phases[i] != wp {
+			t.Errorf("proc.phases[%d] = %d, want %d", i, proc.phases[i], wp)
+		}
+		if !proc.obsModes[i] {
+			t.Errorf("ctx.ObservabilityMode at phase %d was false, want true", wp)
+		}
+	}
+
+	families := gatherRegisteredMetrics(t, s.metrics)
+	if got := counterValue(t, families, "extproc_total_streams"); got != 1 {
+		t.Errorf("extproc_total_streams = %v, want 1", got)
+	}
+	if got := counterValue(t, families, "extproc_request_body_bytes_total"); got != 5 {
+		t.Errorf("extproc_request_body_bytes_total = %v, want 5", got)
+	}
+	if got := counterValue(t, families, "extproc_response_body_bytes_total"); got != 5 {
+		t.Errorf("extproc_response_body_bytes_total = %v, want 5", got)
+	}
+	if got := counterValue(t, families, "extproc_empty_responses"); got != 0 {
+		t.Errorf("extproc_empty_responses = %v, want 0", got)
+	}
+}
+
+func TestProcessObservabilityModeProcessorErrors(t *testing.T) {
+	t.Run("continue_on_failure", func(t *testing.T) {
+		proc := &erroringProcessor{name: "obs-err-continue", opts: &ProcessingOptions{AbortOnProcessorFailure: false}}
+		s := newTestServer(t, proc, proc.opts)
+
+		req := newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")})
+		req.ObservabilityMode = true
+		stream := newProcessStreamFake(context.Background(), req)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error %v, want nil when AbortOnProcessorFailure is false", err)
+		}
+		if len(stream.sent) != 0 {
+			t.Errorf("stream.sent = %d responses, want 0 in observability_mode", len(stream.sent))
+		}
+		families := gatherRegisteredMetrics(t, s.metrics)
+		if got := counterValue(t, families, "extproc_phase_errors_total"); got != 1 {
+			t.Errorf("extproc_phase_errors_total = %v, want 1", got)
+		}
+		if got := counterValue(t, families, "extproc_errored_streams"); got != 1 {
+			t.Errorf("extproc_errored_streams = %v, want 1", got)
+		}
+		if got := counterValue(t, families, "extproc_empty_responses"); got != 0 {
+			t.Errorf("extproc_empty_responses = %v, want 0", got)
+		}
+	})
+
+	t.Run("abort_on_failure", func(t *testing.T) {
+		proc := &erroringProcessor{name: "obs-err-abort", opts: &ProcessingOptions{AbortOnProcessorFailure: true}}
+		s := newTestServer(t, proc, proc.opts)
+
+		req := newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")})
+		req.ObservabilityMode = true
+		stream := newProcessStreamFake(context.Background(), req)
+
+		if err := s.Process(stream); err == nil {
+			t.Fatal("expected Process to abort when AbortOnProcessorFailure is true")
+		}
+		if len(stream.sent) != 0 {
+			t.Errorf("stream.sent = %d responses, want 0 in observability_mode", len(stream.sent))
+		}
+		families := gatherRegisteredMetrics(t, s.metrics)
+		if got := counterValue(t, families, "extproc_errored_streams"); got != 1 {
+			t.Errorf("extproc_errored_streams = %v, want 1", got)
+		}
+	})
+}
+
+type phaseHookProcessor struct {
+	name      string
+	opts      *ProcessingOptions
+	onReqHdrs func(ctx *RequestContext) error
+	onReqBody func(ctx *RequestContext) error
+}
+
+func (p *phaseHookProcessor) GetName() string                { return p.name }
+func (p *phaseHookProcessor) GetOptions() *ProcessingOptions { return p.opts }
+func (p *phaseHookProcessor) ProcessRequestHeaders(ctx *RequestContext, _ AllHeaders) error {
+	if p.onReqHdrs != nil {
+		return p.onReqHdrs(ctx)
+	}
+	return ctx.ContinueRequest()
+}
+func (p *phaseHookProcessor) ProcessRequestBody(ctx *RequestContext, _ []byte) error {
+	if p.onReqBody != nil {
+		return p.onReqBody(ctx)
+	}
+	return ctx.ContinueRequest()
+}
+func (p *phaseHookProcessor) ProcessRequestTrailers(ctx *RequestContext, _ AllHeaders) error {
+	return ctx.ContinueRequest()
+}
+func (p *phaseHookProcessor) ProcessResponseHeaders(ctx *RequestContext, _ AllHeaders) error {
+	return ctx.ContinueRequest()
+}
+func (p *phaseHookProcessor) ProcessResponseBody(ctx *RequestContext, _ []byte) error {
+	return ctx.ContinueRequest()
+}
+func (p *phaseHookProcessor) ProcessResponseTrailers(ctx *RequestContext, _ AllHeaders) error {
+	return ctx.ContinueRequest()
+}
+func (p *phaseHookProcessor) ErrorHandler(_ *RequestContext, _ int, _ error) {}
+func (p *phaseHookProcessor) Close(_ int32) error                            { return nil }
+
+func TestProcessPhaseHeaderExistenceCarriesIntoBodyPhase(t *testing.T) {
+	t.Run("request_headers_mutations_carry_into_request_body", func(t *testing.T) {
+		proc := &phaseHookProcessor{
+			name: "carry",
+			opts: NewDefaultProcessingOptions(),
+			onReqHdrs: func(ctx *RequestContext) error {
+				return ctx.AddHeader("x-added-in-hdrs", HeaderValue{RawValue: []byte("v1")})
+			},
+			onReqBody: func(ctx *RequestContext) error {
+				_ = ctx.AddHeader("x-client", HeaderValue{RawValue: []byte("spoof")})
+				_ = ctx.AddHeader("x-added-in-hdrs", HeaderValue{RawValue: []byte("v2")})
+				return ctx.AddHeader("x-added-in-body", HeaderValue{RawValue: []byte("v3")})
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		hdrResp, _, hdrErr := s.processPhase(
+			newHeadersRequest("request", false, &corev3.HeaderValue{Key: "x-client", RawValue: []byte("orig")}),
+			proc,
+			rc,
+		)
+		if hdrErr != nil {
+			t.Fatalf("RequestHeaders processPhase failed: %v", hdrErr)
+		}
+		hdrSet := hdrResp.GetRequestHeaders().GetResponse().GetHeaderMutation().GetSetHeaders()
+		if len(hdrSet) != 1 || hdrSet[0].GetHeader().GetKey() != "x-added-in-hdrs" {
+			t.Fatalf("RequestHeaders SetHeaders = %v, want [x-added-in-hdrs]", hdrSet)
+		}
+
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		bodyResp, _, bodyErr := s.processPhase(newBodyRequest("request", []byte("body"), true), proc, rc)
+		if bodyErr != nil {
+			t.Fatalf("RequestBody processPhase failed: %v", bodyErr)
+		}
+		bodySet := bodyResp.GetRequestBody().GetResponse().GetHeaderMutation().GetSetHeaders()
+		if len(bodySet) != 1 || bodySet[0].GetHeader().GetKey() != "x-added-in-body" {
+			t.Fatalf("RequestBody SetHeaders = %v, want only [x-added-in-body]", bodySet)
+		}
+	})
+
+	t.Run("cancel_request_preserves_immediate_headers", func(t *testing.T) {
+		proc := &phaseHookProcessor{
+			name: "cancel",
+			opts: NewDefaultProcessingOptions(),
+			onReqHdrs: func(ctx *RequestContext) error {
+				return ctx.CancelRequest(429, map[string]HeaderValue{
+					"x-client": {RawValue: []byte("override-in-local-reply")},
+				}, "limited")
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		resp, _, err := s.processPhase(
+			newHeadersRequest("request", true, &corev3.HeaderValue{Key: "x-client", RawValue: []byte("orig")}),
+			proc,
+			rc,
+		)
+		if err != nil {
+			t.Fatalf("processPhase failed: %v", err)
+		}
+		immSet := resp.GetImmediateResponse().GetHeaders().GetSetHeaders()
+		if len(immSet) != 1 || immSet[0].GetHeader().GetKey() != "x-client" {
+			t.Fatalf("ImmediateResponse SetHeaders = %v, want [x-client]", immSet)
+		}
+	})
+}

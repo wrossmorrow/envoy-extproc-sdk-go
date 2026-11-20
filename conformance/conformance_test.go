@@ -223,40 +223,79 @@ func TestEnvoyConformance(t *testing.T) {
 		runHeaderMutationCase(t, h2cClient, "headers-h2c", "HTTP/2.0")
 	})
 
-	t.Run("header_append_action_envoy_gap", func(t *testing.T) {
-		if os.Getenv("CONFORMANCE_STRICT_APPEND_ACTION") != "1" {
-			t.Skip("known Envoy ext_proc limitation (envoyproxy/envoy#48886): HeaderMutation ignores HeaderValueOption.append_action and defaults deprecated append=false (overwrite); tracked for SDK follow-up")
-		}
+	t.Run("header_append_actions", func(t *testing.T) {
+		for _, protoCase := range []struct {
+			name   string
+			client *http.Client
+		}{
+			{"http1", http1Client},
+			{"h2c", h2cClient},
+		} {
+			t.Run(protoCase.name, func(t *testing.T) {
+				caseID := "header-append-actions-" + protoCase.name
+				extprocSrv.Processor.Register(caseID, CaseHandler{
+					RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+						_ = ctx.AddHeader("x-req-existing", extproc.HeaderValue{RawValue: []byte("ignored")})
+						_ = ctx.AddHeader("x-req-new-once", extproc.HeaderValue{RawValue: []byte("first-add")})
+						_ = ctx.AddHeader("x-req-new-once", extproc.HeaderValue{RawValue: []byte("second-add")})
+						_ = ctx.AppendHeader("x-req-append", extproc.HeaderValue{RawValue: []byte("second")})
+						_ = ctx.UpdateHeader("x-req-overwrite-only", extproc.HeaderValue{RawValue: []byte("after")}, "OVERWRITE_IF_EXISTS")
+						_ = ctx.UpdateHeader("x-req-absent-overwrite", extproc.HeaderValue{RawValue: []byte("nope")}, "OVERWRITE_IF_EXISTS")
+						return ctx.ContinueRequest()
+					},
+					ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+						_ = ctx.AddHeader(CaseHeader, extproc.HeaderValue{RawValue: []byte("should-not-overwrite")})
+						_ = ctx.AppendHeader("x-resp-multi", extproc.HeaderValue{RawValue: []byte("one")})
+						_ = ctx.AppendHeader("x-resp-multi", extproc.HeaderValue{RawValue: []byte("two")})
+						_ = ctx.UpdateHeader("x-resp-absent-overwrite", extproc.HeaderValue{RawValue: []byte("nope")}, "OVERWRITE_IF_EXISTS")
+						return ctx.ContinueRequest()
+					},
+				})
+				t.Cleanup(func() { extprocSrv.Processor.Unregister(caseID) })
 
-		caseID := "header-append-action-strict"
-		extprocSrv.Processor.Register(caseID, CaseHandler{
-			RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
-				_ = ctx.AddHeader("x-req-existing", extproc.HeaderValue{RawValue: []byte("ignored")})
-				_ = ctx.AppendHeader("x-req-append", extproc.HeaderValue{RawValue: []byte("second")})
-				return ctx.ContinueRequest()
-			},
-		})
-		t.Cleanup(func() { extprocSrv.Processor.Unregister(caseID) })
+				req, rerr := http.NewRequest(http.MethodGet, runner.ProxyURL()+"/mode/none/append-action", nil)
+				if rerr != nil {
+					t.Fatal(rerr)
+				}
+				req.Header.Set(CaseHeader, caseID)
+				req.Header.Set("x-req-existing", "keep")
+				req.Header.Set("x-req-append", "first")
+				req.Header.Set("x-req-overwrite-only", "before")
 
-		req, rerr := http.NewRequest(http.MethodGet, runner.ProxyURL()+"/mode/none/append-action", nil)
-		if rerr != nil {
-			t.Fatal(rerr)
-		}
-		req.Header.Set(CaseHeader, caseID)
-		req.Header.Set("x-req-existing", "keep")
-		req.Header.Set("x-req-append", "first")
+				resp, body := doRequest(t, protoCase.client, req)
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+				}
+				echo := decodeEcho(t, body)
+				if got := echo.Headers["x-req-existing"]; !slices.Equal(got, []string{"keep"}) {
+					t.Errorf("x-req-existing (ADD_IF_ABSENT) = %v, want [keep]", got)
+				}
+				if got := echo.Headers["x-req-new-once"]; !slices.Equal(got, []string{"first-add"}) {
+					t.Errorf("x-req-new-once (ADD_IF_ABSENT twice) = %v, want [first-add]", got)
+				}
+				reqJoined := strings.Join(echo.Headers["x-req-append"], ",")
+				if !strings.Contains(reqJoined, "first") || !strings.Contains(reqJoined, "second") {
+					t.Errorf("x-req-append (APPEND_IF_EXISTS_OR_ADD) = %v, want both first and second", echo.Headers["x-req-append"])
+				}
+				if got := echo.Headers["x-req-overwrite-only"]; !slices.Equal(got, []string{"after"}) {
+					t.Errorf("x-req-overwrite-only (OVERWRITE_IF_EXISTS) = %v, want [after]", got)
+				}
+				if got, exists := echo.Headers["x-req-absent-overwrite"]; exists {
+					t.Errorf("x-req-absent-overwrite (OVERWRITE_IF_EXISTS absent) = %v, want absent", got)
+				}
 
-		resp, body := doRequest(t, http1Client, req)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
-		}
-		echo := decodeEcho(t, body)
-		if got := echo.Headers["x-req-existing"]; !slices.Equal(got, []string{"keep"}) {
-			t.Errorf("x-req-existing (ADD_IF_ABSENT) = %v, want [keep]", got)
-		}
-		joined := strings.Join(echo.Headers["x-req-append"], ",")
-		if !strings.Contains(joined, "first") || !strings.Contains(joined, "second") {
-			t.Errorf("x-req-append (APPEND_IF_EXISTS_OR_ADD) = %v, want both first and second", echo.Headers["x-req-append"])
+				if got := resp.Header.Get(CaseHeader); got != caseID {
+					t.Errorf("resp %s (ADD_IF_ABSENT on existing) = %q, want %q", CaseHeader, got, caseID)
+				}
+				respVals := resp.Header.Values("X-Resp-Multi")
+				respJoined := strings.Join(respVals, ",")
+				if !strings.Contains(respJoined, "one") || !strings.Contains(respJoined, "two") {
+					t.Errorf("resp X-Resp-Multi (APPEND_IF_EXISTS_OR_ADD) = %v, want both one and two", respVals)
+				}
+				if got := resp.Header.Get("X-Resp-Absent-Overwrite"); got != "" {
+					t.Errorf("resp X-Resp-Absent-Overwrite (OVERWRITE_IF_EXISTS absent) = %q, want empty", got)
+				}
+			})
 		}
 	})
 

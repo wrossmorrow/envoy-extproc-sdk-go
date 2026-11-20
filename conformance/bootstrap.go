@@ -114,6 +114,17 @@ func bufferedProcessingMode() *extproccfgv3.ProcessingMode {
 	}
 }
 
+func streamedProcessingMode() *extproccfgv3.ProcessingMode {
+	return &extproccfgv3.ProcessingMode{
+		RequestHeaderMode:   extproccfgv3.ProcessingMode_SEND,
+		ResponseHeaderMode:  extproccfgv3.ProcessingMode_SEND,
+		RequestBodyMode:     extproccfgv3.ProcessingMode_STREAMED,
+		ResponseBodyMode:    extproccfgv3.ProcessingMode_STREAMED,
+		RequestTrailerMode:  extproccfgv3.ProcessingMode_SKIP,
+		ResponseTrailerMode: extproccfgv3.ProcessingMode_SKIP,
+	}
+}
+
 func makeExtProcFilter(name, clusterName string, failureModeAllow bool, messageTimeout time.Duration, observability, disabledByDefault bool, mode *extproccfgv3.ProcessingMode) (*hcmv3.HttpFilter, error) {
 	cfgAny, err := mustAny(&extproccfgv3.ExternalProcessor{
 		GrpcService: &corev3.GrpcService{
@@ -181,10 +192,14 @@ func makeProfileRoute(prefix string, disabledDefault *anypb.Any, enableFilters .
 }
 
 func makeProfileRouteWithOverrides(prefix string, disabledDefault *anypb.Any, failureModeAllow *bool, enableFilters ...string) (*routev3.Route, error) {
+	return makeProfileRouteWithMode(prefix, disabledDefault, bufferedProcessingMode(), failureModeAllow, enableFilters...)
+}
+
+func makeProfileRouteWithMode(prefix string, disabledDefault *anypb.Any, mode *extproccfgv3.ProcessingMode, failureModeAllow *bool, enableFilters ...string) (*routev3.Route, error) {
 	perFilter := map[string]*anypb.Any{
 		extProcFilterName: disabledDefault,
 	}
-	enableAny, err := makeOverridesAny(bufferedProcessingMode(), failureModeAllow)
+	enableAny, err := makeOverridesAny(mode, failureModeAllow)
 	if err != nil {
 		return nil, err
 	}
@@ -284,14 +299,7 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 	}
 	bufferedPartialRoute.PerRequestBufferLimitBytes = wrapperspb.UInt32(64)
 
-	streamedRoute, err := makeModeRoute("/mode/streamed", &extproccfgv3.ProcessingMode{
-		RequestHeaderMode:   extproccfgv3.ProcessingMode_SEND,
-		ResponseHeaderMode:  extproccfgv3.ProcessingMode_SEND,
-		RequestBodyMode:     extproccfgv3.ProcessingMode_STREAMED,
-		ResponseBodyMode:    extproccfgv3.ProcessingMode_STREAMED,
-		RequestTrailerMode:  extproccfgv3.ProcessingMode_SKIP,
-		ResponseTrailerMode: extproccfgv3.ProcessingMode_SKIP,
-	})
+	streamedRoute, err := makeModeRoute("/mode/streamed", streamedProcessingMode())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -353,7 +361,7 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	observabilityRoute, err := makeProfileRoute("/profile/observability", disabledPerRouteAny, extProcObservabilityFilterName)
+	observabilityRoute, err := makeProfileRouteWithMode("/profile/observability", disabledPerRouteAny, streamedProcessingMode(), nil, extProcObservabilityFilterName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -382,7 +390,7 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	observabilityFilter, err := makeExtProcFilter(extProcObservabilityFilterName, extProcClusterDefault, true, 5*time.Second, true, true, bufferedProcessingMode())
+	observabilityFilter, err := makeExtProcFilter(extProcObservabilityFilterName, extProcClusterDefault, true, 5*time.Second, true, true, streamedProcessingMode())
 	if err != nil {
 		return nil, nil, err
 	}

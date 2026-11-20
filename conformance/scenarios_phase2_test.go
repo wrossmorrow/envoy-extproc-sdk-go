@@ -8,9 +8,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1022,26 +1022,92 @@ func runPhase2Scenarios(t *testing.T, env conformanceEnv) {
 		if echo.Body != "after-second" {
 			t.Errorf("upstream body = %q, want after-second", echo.Body)
 		}
+		extprocNames := strings.Join(resp.Header.Values("X-Extproc-Names"), ",")
+		if !strings.Contains(extprocNames, "conformance") || !strings.Contains(extprocNames, "conformance-second") {
+			t.Errorf("X-Extproc-Names = %v, want both conformance and conformance-second", resp.Header.Values("X-Extproc-Names"))
+		}
 	})
 
-	t.Run("observability_mode_envoy_gap", func(t *testing.T) {
-		if os.Getenv("CONFORMANCE_STRICT_OBSERVABILITY") != "1" {
-			t.Skip("known SDK protocol gap: GenericExtProcServer sends EmptyContinueResponse when ProcessingRequest.observability_mode is true; tracked for follow-up SDK fix")
-		}
-
+	t.Run("observability_mode", func(t *testing.T) {
 		caseID := "observability-strict"
-		env.extprocSrv.Processor.Register(caseID, CaseHandler{})
+		emptyBefore := mustCounter(t, env.extprocSrv, "extproc_empty_responses")
+
+		var sawReqHdrs, sawReqBody, sawRespHdrs, sawRespBody atomic.Bool
+		var obsReqHdrs, obsReqBody, obsRespHdrs, obsRespBody atomic.Bool
+		obsDone := make(chan struct{})
+		var doneOnce sync.Once
+
+		env.extprocSrv.Processor.Register(caseID, CaseHandler{
+			RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+				sawReqHdrs.Store(true)
+				obsReqHdrs.Store(ctx.ObservabilityMode)
+				_ = ctx.AddHeader("x-obs-mutated", extproc.HeaderValue{RawValue: []byte("req-hdrs")})
+				return ctx.ContinueRequest()
+			},
+			RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+				sawReqBody.Store(true)
+				obsReqBody.Store(ctx.ObservabilityMode)
+				_ = ctx.AddHeader("x-obs-mutated", extproc.HeaderValue{RawValue: []byte("req-body")})
+				return ctx.ContinueRequest()
+			},
+			ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+				sawRespHdrs.Store(true)
+				obsRespHdrs.Store(ctx.ObservabilityMode)
+				_ = ctx.AddHeader("x-obs-mutated", extproc.HeaderValue{RawValue: []byte("resp-hdrs")})
+				return ctx.ContinueRequest()
+			},
+			ResponseBody: func(ctx *extproc.RequestContext, _ []byte) error {
+				sawRespBody.Store(true)
+				obsRespBody.Store(ctx.ObservabilityMode)
+				_ = ctx.AddHeader("x-obs-mutated", extproc.HeaderValue{RawValue: []byte("resp-body")})
+				if ctx.EndOfStream {
+					doneOnce.Do(func() { close(obsDone) })
+				}
+				return ctx.ContinueRequest()
+			},
+		})
 		t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
 
-		req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/profile/observability/ping", nil)
+		req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/observability/ping", strings.NewReader("observed-body"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set(CaseHeader, caseID)
 
-		resp, _ := doRequest(t, env.http1Client, req)
+		resp, body := doRequest(t, env.http1Client, req)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d, want 200", resp.StatusCode)
+			t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+		}
+		echo := decodeEcho(t, body)
+		if echo.Body != "observed-body" {
+			t.Errorf("upstream echo.Body = %q, want %q", echo.Body, "observed-body")
+		}
+		if got, exists := echo.Headers["x-obs-mutated"]; exists {
+			t.Errorf("upstream x-obs-mutated = %v, want absent in observability_mode", got)
+		}
+		if got := resp.Header.Get("x-obs-mutated"); got != "" {
+			t.Errorf("client x-obs-mutated = %q, want empty in observability_mode", got)
+		}
+		if got := resp.Header.Get("x-extproc-names"); got != "" {
+			t.Errorf("client x-extproc-names = %q, want empty in observability_mode", got)
+		}
+
+		select {
+		case <-obsDone:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for async observability_mode callbacks to finish")
+		}
+
+		if !sawReqHdrs.Load() || !sawReqBody.Load() || !sawRespHdrs.Load() || !sawRespBody.Load() {
+			t.Errorf("observability phases called: reqHdrs=%v reqBody=%v respHdrs=%v respBody=%v, want all true",
+				sawReqHdrs.Load(), sawReqBody.Load(), sawRespHdrs.Load(), sawRespBody.Load())
+		}
+		if !obsReqHdrs.Load() || !obsReqBody.Load() || !obsRespHdrs.Load() || !obsRespBody.Load() {
+			t.Errorf("ctx.ObservabilityMode flags: reqHdrs=%v reqBody=%v respHdrs=%v respBody=%v, want all true",
+				obsReqHdrs.Load(), obsReqBody.Load(), obsRespHdrs.Load(), obsRespBody.Load())
+		}
+		if emptyAfter := mustCounter(t, env.extprocSrv, "extproc_empty_responses"); emptyAfter != emptyBefore {
+			t.Errorf("extproc_empty_responses = %v, want %v (unchanged in observability_mode)", emptyAfter, emptyBefore)
 		}
 		env.runner.AssertNoProtocolErrors(t)
 	})
