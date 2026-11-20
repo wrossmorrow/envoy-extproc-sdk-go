@@ -3,6 +3,7 @@ package extproc
 import (
 	"testing"
 
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
@@ -853,6 +854,91 @@ func TestGetResponsePropagatesModeOverrideAndResetClearsIt(t *testing.T) {
 		}
 		if resp.GetModeOverride() != nil {
 			t.Errorf("expected nil ModeOverride on ImmediateResponse, got %v", resp.GetModeOverride())
+		}
+	})
+}
+
+func TestProtocolConfigAndDefaultModeOverride(t *testing.T) {
+	t.Run("protocol_config_from_proto", func(t *testing.T) {
+		if got := protocolConfigFromProto(nil); got != nil {
+			t.Fatalf("protocolConfigFromProto(nil) = %+v, want nil", got)
+		}
+
+		pc := protocolConfigFromProto(&extprocv3.ProtocolConfiguration{
+			RequestBodyMode:                         extproccfgv3.ProcessingMode_STREAMED,
+			ResponseBodyMode:                        extproccfgv3.ProcessingMode_BUFFERED_PARTIAL,
+			SendBodyWithoutWaitingForHeaderResponse: true,
+		})
+		if pc == nil {
+			t.Fatal("protocolConfigFromProto returned nil")
+		}
+		if pc.RequestBodyMode != BodyModeStreamed ||
+			pc.ResponseBodyMode != BodyModeBufferedPartial ||
+			!pc.SendBodyWithoutWaitingForHeaderResponse {
+			t.Errorf("unexpected ProtocolConfig: %+v", pc)
+		}
+	})
+
+	t.Run("default_mode_override_handles_nil_and_populated", func(t *testing.T) {
+		var nilRC *RequestContext
+		if got := nilRC.DefaultModeOverride(); got != (ModeOverride{}) {
+			t.Errorf("nilRC.DefaultModeOverride() = %+v, want zero ModeOverride", got)
+		}
+
+		rc := newRequestContext()
+		emptyMode := rc.DefaultModeOverride()
+		if emptyMode != (ModeOverride{}) {
+			t.Errorf("empty DefaultModeOverride() = %+v, want zero ModeOverride", emptyMode)
+		}
+		if _, err := emptyMode.ToEnvoyProcessingMode(); err != nil {
+			t.Errorf("emptyMode.ToEnvoyProcessingMode() = %v, want nil", err)
+		}
+
+		rc.ProtocolConfig = &ProtocolConfig{
+			RequestBodyMode:                         BodyModeNone,
+			ResponseBodyMode:                        BodyModeBuffered,
+			SendBodyWithoutWaitingForHeaderResponse: true,
+		}
+		mode := rc.DefaultModeOverride()
+		if mode.ResponseHeaderMode != HeaderModeDefault ||
+			mode.RequestBodyMode != BodyModeNone ||
+			mode.ResponseBodyMode != BodyModeBuffered ||
+			mode.RequestTrailerMode != HeaderModeDefault ||
+			mode.ResponseTrailerMode != HeaderModeDefault {
+			t.Errorf("unexpected DefaultModeOverride() = %+v", mode)
+		}
+		mode.RequestBodyMode = BodyModeStreamed
+		pm, err := mode.ToEnvoyProcessingMode()
+		if err != nil {
+			t.Fatalf("ToEnvoyProcessingMode() = %v", err)
+		}
+		if pm.GetRequestBodyMode() != extproccfgv3.ProcessingMode_STREAMED ||
+			pm.GetResponseBodyMode() != extproccfgv3.ProcessingMode_BUFFERED {
+			t.Errorf("converted proto = %+v, want RequestBodyMode=STREAMED ResponseBodyMode=BUFFERED", pm)
+		}
+	})
+
+	t.Run("reset_and_init_preserve_protocol_config", func(t *testing.T) {
+		rc := newRequestContext()
+		expected := &ProtocolConfig{
+			RequestBodyMode:                         BodyModeBuffered,
+			ResponseBodyMode:                        BodyModeStreamed,
+			SendBodyWithoutWaitingForHeaderResponse: true,
+		}
+		rc.ProtocolConfig = expected
+
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+		if rc.ProtocolConfig != expected {
+			t.Fatalf("ResetPhase cleared ProtocolConfig: got %+v, want %+v", rc.ProtocolConfig, expected)
+		}
+
+		if err := initReqCtx(rc, &corev3.HeaderMap{}); err != nil {
+			t.Fatal(err)
+		}
+		if rc.ProtocolConfig != expected {
+			t.Fatalf("initReqCtx cleared ProtocolConfig: got %+v, want %+v", rc.ProtocolConfig, expected)
 		}
 	})
 }

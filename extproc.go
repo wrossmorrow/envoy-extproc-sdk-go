@@ -242,6 +242,9 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 	obs := procReq.GetObservabilityMode()
 	if rc != nil {
 		rc.ObservabilityMode = obs
+		if pc := procReq.GetProtocolConfig(); pc != nil {
+			rc.ProtocolConfig = protocolConfigFromProto(pc)
+		}
 	}
 
 	ps = time.Now()

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
@@ -1162,10 +1163,12 @@ func TestProcessObservabilityModeProcessorErrors(t *testing.T) {
 }
 
 type phaseHookProcessor struct {
-	name      string
-	opts      *ProcessingOptions
-	onReqHdrs func(ctx *RequestContext) error
-	onReqBody func(ctx *RequestContext) error
+	name       string
+	opts       *ProcessingOptions
+	onReqHdrs  func(ctx *RequestContext) error
+	onReqBody  func(ctx *RequestContext) error
+	onRespHdrs func(ctx *RequestContext) error
+	onRespBody func(ctx *RequestContext) error
 }
 
 func (p *phaseHookProcessor) GetName() string                { return p.name }
@@ -1186,9 +1189,15 @@ func (p *phaseHookProcessor) ProcessRequestTrailers(ctx *RequestContext, _ AllHe
 	return ctx.ContinueRequest()
 }
 func (p *phaseHookProcessor) ProcessResponseHeaders(ctx *RequestContext, _ AllHeaders) error {
+	if p.onRespHdrs != nil {
+		return p.onRespHdrs(ctx)
+	}
 	return ctx.ContinueRequest()
 }
 func (p *phaseHookProcessor) ProcessResponseBody(ctx *RequestContext, _ []byte) error {
+	if p.onRespBody != nil {
+		return p.onRespBody(ctx)
+	}
 	return ctx.ContinueRequest()
 }
 func (p *phaseHookProcessor) ProcessResponseTrailers(ctx *RequestContext, _ AllHeaders) error {
@@ -1354,6 +1363,139 @@ func TestProcessPhaseModeOverride(t *testing.T) {
 		}
 		if got := counterValue(t, families, "extproc_errored_streams"); got != 1 {
 			t.Errorf("extproc_errored_streams = %v, want 1", got)
+		}
+	})
+}
+
+func TestProcessStreamProtocolConfig(t *testing.T) {
+	t.Run("persists_across_all_phases_when_only_first_message_sets_it", func(t *testing.T) {
+		var observed []*ProtocolConfig
+		capture := func(ctx *RequestContext) error {
+			observed = append(observed, ctx.ProtocolConfig)
+			return ctx.ContinueRequest()
+		}
+		proc := &phaseHookProcessor{
+			name:       "proto-cfg-persist",
+			opts:       NewDefaultProcessingOptions(),
+			onReqHdrs:  capture,
+			onReqBody:  capture,
+			onRespHdrs: capture,
+			onRespBody: capture,
+		}
+		s := newTestServer(t, proc, proc.opts)
+
+		reqHdrs := newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")})
+		reqHdrs.ProtocolConfig = &extprocv3.ProtocolConfiguration{
+			RequestBodyMode:                         extproccfgv3.ProcessingMode_BUFFERED,
+			ResponseBodyMode:                        extproccfgv3.ProcessingMode_STREAMED,
+			SendBodyWithoutWaitingForHeaderResponse: true,
+		}
+		stream := newProcessStreamFake(
+			context.Background(),
+			reqHdrs,
+			newBodyRequest("request", []byte("req-payload"), true),
+			newHeadersRequest("response", false, &corev3.HeaderValue{Key: ":status", RawValue: []byte("200")}),
+			newBodyRequest("response", []byte("resp-payload"), true),
+		)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error: %v", err)
+		}
+		if len(observed) != 4 {
+			t.Fatalf("captured %d phases, want 4", len(observed))
+		}
+		want := ProtocolConfig{
+			RequestBodyMode:                         BodyModeBuffered,
+			ResponseBodyMode:                        BodyModeStreamed,
+			SendBodyWithoutWaitingForHeaderResponse: true,
+		}
+		for i, pc := range observed {
+			if pc == nil {
+				t.Fatalf("phase %d observed nil ProtocolConfig", i)
+			}
+			if *pc != want {
+				t.Errorf("phase %d ProtocolConfig = %+v, want %+v", i, *pc, want)
+			}
+		}
+	})
+
+	t.Run("captured_when_request_headers_skipped", func(t *testing.T) {
+		var observed []*ProtocolConfig
+		capture := func(ctx *RequestContext) error {
+			observed = append(observed, ctx.ProtocolConfig)
+			return ctx.ContinueRequest()
+		}
+		proc := &phaseHookProcessor{
+			name:       "proto-cfg-skip-req-hdrs",
+			opts:       NewDefaultProcessingOptions(),
+			onRespHdrs: capture,
+			onRespBody: capture,
+		}
+		s := newTestServer(t, proc, proc.opts)
+
+		respHdrs := newHeadersRequest("response", false, &corev3.HeaderValue{Key: ":status", RawValue: []byte("200")})
+		respHdrs.ProtocolConfig = &extprocv3.ProtocolConfiguration{
+			RequestBodyMode:  extproccfgv3.ProcessingMode_NONE,
+			ResponseBodyMode: extproccfgv3.ProcessingMode_BUFFERED,
+		}
+		stream := newProcessStreamFake(
+			context.Background(),
+			respHdrs,
+			newBodyRequest("response", []byte("ok"), true),
+		)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error: %v", err)
+		}
+		if len(observed) != 2 {
+			t.Fatalf("captured %d phases, want 2", len(observed))
+		}
+		want := ProtocolConfig{
+			RequestBodyMode:  BodyModeNone,
+			ResponseBodyMode: BodyModeBuffered,
+		}
+		for i, pc := range observed {
+			if pc == nil {
+				t.Fatalf("phase %d observed nil ProtocolConfig", i)
+			}
+			if *pc != want {
+				t.Errorf("phase %d ProtocolConfig = %+v, want %+v", i, *pc, want)
+			}
+		}
+	})
+
+	t.Run("nil_when_absent_on_stream", func(t *testing.T) {
+		var observed []*ProtocolConfig
+		proc := &phaseHookProcessor{
+			name: "proto-cfg-absent",
+			opts: NewDefaultProcessingOptions(),
+			onReqHdrs: func(ctx *RequestContext) error {
+				observed = append(observed, ctx.ProtocolConfig)
+				return ctx.ContinueRequest()
+			},
+			onRespHdrs: func(ctx *RequestContext) error {
+				observed = append(observed, ctx.ProtocolConfig)
+				return ctx.ContinueRequest()
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+
+		stream := newProcessStreamFake(
+			context.Background(),
+			newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")}),
+			newHeadersRequest("response", true, &corev3.HeaderValue{Key: ":status", RawValue: []byte("200")}),
+		)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error: %v", err)
+		}
+		if len(observed) != 2 {
+			t.Fatalf("captured %d phases, want 2", len(observed))
+		}
+		for i, pc := range observed {
+			if pc != nil {
+				t.Errorf("phase %d ProtocolConfig = %+v, want nil", i, pc)
+			}
 		}
 	})
 }
