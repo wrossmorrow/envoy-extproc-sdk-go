@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	epb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/prometheus/client_golang/prometheus"
 	extproc "github.com/wrossmorrow/envoy-extproc-sdk-go"
 	"google.golang.org/grpc"
 	hpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -35,17 +36,29 @@ type CaseHandler struct {
 // individual tests control exact ext_proc behavior without coupling to request
 // bodies.
 type ConformanceProcessor struct {
+	name  string
 	opts  *extproc.ProcessingOptions
 	mu    sync.RWMutex
 	cases map[string]CaseHandler
 }
 
-// NewConformanceProcessor creates a ConformanceProcessor with the supplied options.
+// NewConformanceProcessor creates a ConformanceProcessor named "conformance"
+// with the supplied options.
 func NewConformanceProcessor(opts *extproc.ProcessingOptions) *ConformanceProcessor {
+	return NewConformanceProcessorWithName("conformance", opts)
+}
+
+// NewConformanceProcessorWithName creates a ConformanceProcessor with an
+// explicit processor name and options.
+func NewConformanceProcessorWithName(name string, opts *extproc.ProcessingOptions) *ConformanceProcessor {
+	if name == "" {
+		name = "conformance"
+	}
 	if opts == nil {
 		opts = extproc.NewDefaultProcessingOptions()
 	}
 	return &ConformanceProcessor{
+		name:  name,
 		opts:  opts,
 		cases: make(map[string]CaseHandler),
 	}
@@ -91,7 +104,7 @@ func (p *ConformanceProcessor) lookup(ctx *extproc.RequestContext) (CaseHandler,
 }
 
 func (p *ConformanceProcessor) GetName() string {
-	return "conformance"
+	return p.name
 }
 
 func (p *ConformanceProcessor) GetOptions() *extproc.ProcessingOptions {
@@ -166,14 +179,21 @@ type ConformanceExtProcServer struct {
 	Processor *ConformanceProcessor
 	Metrics   *extproc.Metrics
 	Server    *extproc.GenericExtProcServer
+	registry  *prometheus.Registry
 	grpcSrv   *grpc.Server
 	listener  net.Listener
 	port      int
 }
 
-// StartConformanceExtProcServer launches an in-process ext_proc gRPC server on
-// 0.0.0.0:0.
+// StartConformanceExtProcServer launches an in-process ext_proc gRPC server
+// named "conformance" on 0.0.0.0:0.
 func StartConformanceExtProcServer(opts *extproc.ProcessingOptions, logger *slog.Logger) (*ConformanceExtProcServer, error) {
+	return StartConformanceExtProcServerWithName("conformance", opts, logger)
+}
+
+// StartConformanceExtProcServerWithName launches an in-process ext_proc gRPC
+// server with the given processor name on 0.0.0.0:0.
+func StartConformanceExtProcServerWithName(name string, opts *extproc.ProcessingOptions, logger *slog.Logger) (*ConformanceExtProcServer, error) {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
@@ -188,8 +208,9 @@ func StartConformanceExtProcServer(opts *extproc.ProcessingOptions, logger *slog
 		return nil, fmt.Errorf("unexpected listener address %T", lis.Addr())
 	}
 
-	proc := NewConformanceProcessor(opts)
-	metrics := extproc.NewEmptyMetrics()
+	proc := NewConformanceProcessorWithName(name, opts)
+	registry := prometheus.NewRegistry()
+	metrics := extproc.NewEmptyMetrics().Register(registry)
 	sdkSrv, err := extproc.NewGenericExtProcServer(proc, metrics, logger)
 	if err != nil {
 		_ = lis.Close()
@@ -208,6 +229,7 @@ func StartConformanceExtProcServer(opts *extproc.ProcessingOptions, logger *slog
 		Processor: proc,
 		Metrics:   metrics,
 		Server:    sdkSrv,
+		registry:  registry,
 		grpcSrv:   grpcSrv,
 		listener:  lis,
 		port:      tcpAddr.Port,
@@ -222,6 +244,44 @@ func (s *ConformanceExtProcServer) Port() int {
 // Addr returns the loopback host:port address for direct gRPC connections.
 func (s *ConformanceExtProcServer) Addr() string {
 	return fmt.Sprintf("127.0.0.1:%d", s.port)
+}
+
+// CounterValue reads the current scalar value of a registered Prometheus counter.
+func (s *ConformanceExtProcServer) CounterValue(metricName string) (float64, error) {
+	families, err := s.registry.Gather()
+	if err != nil {
+		return 0, fmt.Errorf("gather metrics: %w", err)
+	}
+	for _, fam := range families {
+		if fam.GetName() != metricName {
+			continue
+		}
+		ms := fam.GetMetric()
+		if len(ms) == 0 || ms[0].GetCounter() == nil {
+			return 0, fmt.Errorf("metric %q has no counter value", metricName)
+		}
+		return ms[0].GetCounter().GetValue(), nil
+	}
+	return 0, fmt.Errorf("metric %q not found", metricName)
+}
+
+// GaugeValue reads the current scalar value of a registered Prometheus gauge.
+func (s *ConformanceExtProcServer) GaugeValue(metricName string) (float64, error) {
+	families, err := s.registry.Gather()
+	if err != nil {
+		return 0, fmt.Errorf("gather metrics: %w", err)
+	}
+	for _, fam := range families {
+		if fam.GetName() != metricName {
+			continue
+		}
+		ms := fam.GetMetric()
+		if len(ms) == 0 || ms[0].GetGauge() == nil {
+			return 0, fmt.Errorf("metric %q has no gauge value", metricName)
+		}
+		return ms[0].GetGauge().GetValue(), nil
+	}
+	return 0, fmt.Errorf("metric %q not found", metricName)
 }
 
 // Close stops the gRPC server.

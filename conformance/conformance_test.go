@@ -73,11 +73,30 @@ func TestEnvoyConformance(t *testing.T) {
 	}
 	t.Cleanup(extprocSrv.Close)
 
+	abortExtprocSrv, err := StartConformanceExtProcServerWithName("conformance-abort", &extproc.ProcessingOptions{
+		UpdateExtProcHeader:     true,
+		AbortOnProcessorFailure: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("start abort conformance extproc server: %v", err)
+	}
+	t.Cleanup(abortExtprocSrv.Close)
+
+	secondExtprocSrv, err := StartConformanceExtProcServerWithName("conformance-second", &extproc.ProcessingOptions{
+		UpdateExtProcHeader: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("start secondary conformance extproc server: %v", err)
+	}
+	t.Cleanup(secondExtprocSrv.Close)
+
 	runner, err := StartEnvoyRunner(context.Background(), EnvoyConfig{
 		Version:               version,
 		PrimaryUpstreamPort:   primaryUpstream.Port(),
 		SecondaryUpstreamPort: secondaryUpstream.Port(),
 		ExtProcPort:           extprocSrv.Port(),
+		AbortExtProcPort:      abortExtprocSrv.Port(),
+		SecondaryExtProcPort:  secondExtprocSrv.Port(),
 	})
 	if err != nil {
 		if os.Getenv("CONFORMANCE_REQUIRE_ENVOY") == "1" {
@@ -535,6 +554,15 @@ func TestEnvoyConformance(t *testing.T) {
 		if got := resp.Header.Get("x-extproc-names"); got != "" {
 			t.Errorf("x-extproc-names = %q, want empty on disabled route", got)
 		}
+	})
+
+	runPhase2Scenarios(t, conformanceEnv{
+		runner:           runner,
+		extprocSrv:       extprocSrv,
+		abortExtprocSrv:  abortExtprocSrv,
+		secondExtprocSrv: secondExtprocSrv,
+		http1Client:      http1Client,
+		h2cClient:        h2cClient,
 	})
 
 	runner.AssertNoProtocolErrors(t)

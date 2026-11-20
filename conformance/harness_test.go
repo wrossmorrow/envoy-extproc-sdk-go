@@ -50,6 +50,8 @@ func TestBuildBootstrapValidates(t *testing.T) {
 		PrimaryUpstreamPort:   18001,
 		SecondaryUpstreamPort: 18002,
 		ExtProcPort:           50051,
+		AbortExtProcPort:      50052,
+		SecondaryExtProcPort:  50053,
 		ListenerPort:          18080,
 		AdminPort:             19901,
 	})
@@ -67,12 +69,21 @@ func TestBuildBootstrapValidates(t *testing.T) {
 		"upstream_primary",
 		"upstream_secondary",
 		"extproc_service",
+		"extproc_abort_service",
+		"extproc_secondary_service",
 		"/mode/disabled",
 		"/mode/buffered",
+		"/mode/buffered-partial",
 		"/mode/streamed",
 		"/mode/trailers",
 		"/mode/none",
 		"/mode/skip-req-headers",
+		"/profile/timeout-fail-closed",
+		"/profile/timeout-fail-open",
+		"/profile/abort-fail-closed",
+		"/profile/abort-fail-open",
+		"/profile/chained",
+		"/profile/observability",
 	} {
 		if !strings.Contains(rawStr, needle) {
 			t.Errorf("bootstrap JSON missing %q", needle)
@@ -304,4 +315,12 @@ func TestConformanceProcessorLoopbackGRPC(t *testing.T) {
 			t.Fatalf("expected io.EOF, got %v", eofErr)
 		}
 	})
+
+	streams, merr := srv.CounterValue("extproc_total_streams")
+	if merr != nil {
+		t.Fatalf("CounterValue(extproc_total_streams) error: %v", merr)
+	}
+	if streams < 2 {
+		t.Errorf("extproc_total_streams = %v, want >= 2", streams)
+	}
 }

@@ -23,6 +23,8 @@ type EnvoyConfig struct {
 	PrimaryUpstreamPort   int
 	SecondaryUpstreamPort int
 	ExtProcPort           int
+	AbortExtProcPort      int
+	SecondaryExtProcPort  int
 }
 
 // EnvoyRunner manages a live Envoy proxy instance (either containerized or via
@@ -110,6 +112,8 @@ func startBinaryEnvoy(ctx context.Context, envoyBin string, cfg EnvoyConfig) (*E
 		PrimaryUpstreamPort:   cfg.PrimaryUpstreamPort,
 		SecondaryUpstreamPort: cfg.SecondaryUpstreamPort,
 		ExtProcPort:           cfg.ExtProcPort,
+		AbortExtProcPort:      cfg.AbortExtProcPort,
+		SecondaryExtProcPort:  cfg.SecondaryExtProcPort,
 		ListenerPort:          listenerPort,
 		AdminPort:             adminPort,
 	})
@@ -164,6 +168,8 @@ func startDockerEnvoy(ctx context.Context, cfg EnvoyConfig) (*EnvoyRunner, error
 		PrimaryUpstreamPort:   cfg.PrimaryUpstreamPort,
 		SecondaryUpstreamPort: cfg.SecondaryUpstreamPort,
 		ExtProcPort:           cfg.ExtProcPort,
+		AbortExtProcPort:      cfg.AbortExtProcPort,
+		SecondaryExtProcPort:  cfg.SecondaryExtProcPort,
 		ListenerPort:          containerListenerPort,
 		AdminPort:             containerAdminPort,
 	})

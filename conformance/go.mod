@@ -4,6 +4,8 @@ go 1.25.0
 
 require (
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0
+	github.com/prometheus/client_golang v1.24.1
+	github.com/prometheus/client_model v0.6.2
 	github.com/wrossmorrow/envoy-extproc-sdk-go v0.2.1
 	golang.org/x/net v0.57.0
 	google.golang.org/grpc v1.83.0
