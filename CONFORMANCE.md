@@ -20,33 +20,41 @@ Verification in this repository is intentionally split into two tiers:
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]
-> Phases 1 and 2 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are implemented in [conformance/](conformance) and [.github/workflows/conformance.yaml](.github/workflows/conformance.yaml), covering active Envoy releases `v1.37`–`v1.40`. Phase 3 adds automated matrix reporting and release sync; Phase 4 tackles the flagged SDK gaps and new v3 spec features.
+> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete: the [conformance/](conformance) harness, [conformance/features.yaml](conformance/features.yaml) manifest, report generator (`just conformance-report`), deterministic Docker/CI module checks, and automated Envoy release-window sync ([.github/workflows/envoy-versions-sync.yaml](.github/workflows/envoy-versions-sync.yaml)) are in place. Phase 4 covers the flagged SDK gaps and new v3 spec extensions.
 
 ---
 
 ## `ext_proc` v3 Feature Coverage Matrix
 
-| Feature / Capability | SDK Support | SDK Surface | Current Verification |
-| :--- | :--- | :--- | :--- |
-| Request & response header phase callbacks (`SEND`) | Supported | `RequestProcessor.ProcessRequestHeaders`, `ProcessResponseHeaders` | Unit + Routine Integration + Live Conformance (HTTP/1.1 & `h2c`, multi-value, `RawValues`, `SplitList`, `RequestContext` fields & cross-phase state) |
-| Skip request headers (`request_header_mode: SKIP`) | Supported | `newRequestContext` initializes `data` map before header phase ([context.go](context.go)) | Live Conformance (`skip_request_headers_response_mutation`) |
-| Header read representation (`AllHeaders`) | Supported | `AllHeaders.Get`, `Values`, `RawValues`, `Has`, `SplitList` ([headers.go](headers.go)) | Unit (`headers_test.go`) + Routine Integration (`TestHeaderParsing`) + Live Conformance |
-| Header mutations (`ADD_IF_ABSENT`, `APPEND_IF_EXISTS_OR_ADD`, `OVERWRITE_IF_EXISTS_OR_ADD`, `OVERWRITE_IF_EXISTS`, remove) | Partial (Envoy quirk) | `AddHeader*`, `AppendHeader*`, `OverwriteHeader*`, `UpdateHeader*`, `RemoveHeader*` | Unit + Live Conformance (`AddHeader` on absent key, `OverwriteHeader`, `RemoveHeader`); live Envoy `v1.37`–`v1.40` ignores `append_action` (`envoyproxy/envoy#48886`) and falls back to deprecated `append=false` (overwrite), tracked via `CONFORMANCE_STRICT_APPEND_ACTION=1` |
-| Body processing — `BUFFERED` | Supported | `ProcessRequestBody`, `ProcessResponseBody`, `ReplaceBody`, `ClearBody` | Unit + Routine Integration + Live Conformance (`buffered_body_replace_grow_and_shrink`, `buffered_body_clear`, `http1_chunked_response_buffered_replace_and_clear`) |
-| Body processing — `STREAMED` & `BUFFERED_PARTIAL` | Supported | `ReplaceBodyChunk`, `ClearBodyChunk` | Unit + Live Conformance (`streamed_body_chunks`, `streamed_request_and_response_clear_chunk`, `buffered_partial_mode`) |
-| Body mode `NONE` | Supported | `ProcessingMode` `NONE` skips body callbacks | Live Conformance (`get_nobody_mode_none`, `post_with_body_mode_none`) |
-| Request & response trailers | Supported | `ProcessRequestTrailers`, `ProcessResponseTrailers`, trailer `HeaderMutation` | Unit (`server_test.go`, `phase_test.go`) + Live Conformance (`http1_trailers_roundtrip`, `h2c_trailers_roundtrip`) |
-| Route cache re-evaluation (`clear_route_cache`) | Supported | `RequestContext.ClearRouteCache`, `UnClearRouteCache` | Unit + Routine Integration + Live Conformance (`clear_route_cache_upstream_switch`, `clear_route_cache_from_request_body`) |
-| Immediate local responses (`ImmediateResponse`) | Partial | `RequestContext.CancelRequest` (`Status`, `Headers`, `Body`; `GrpcStatus` and `Details` not yet exposed; note Envoy `type.v3.StatusCode` omits `418`) | Unit + Routine Integration + Live Conformance (`immediate_response_request_headers`, `immediate_response_all_phases_and_trailers_fallback`) |
-| Stream cancellation, timeouts, error handling & filter chaining | Supported | `codes.Canceled` handling via `ErrorHandler` ([extproc.go](extproc.go)), `AbortOnProcessorFailure`, `HealthServer`, `Serve` drain ([server.go](server.go)) | Unit (`server_test.go`, `health_test.go`) + Live Conformance (`downstream_client_cancel_graceful`, `message_timeout_fail_closed_and_fail_open`, `processor_error_continue_vs_abort`, `multi_filter_chaining`, `per_route_disabled_bypass`) |
-| Processing metrics & timing headers | Supported | `Metrics` (`/metrics` OpenMetrics) ([metrics.go](metrics.go)), `UpdateExtProcHeader`, `UpdateDurationHeader` | Unit (`metrics_test.go`, `server_test.go`) + Live Conformance + Loadtest |
-| Observability mode (`observability_mode: true`) | Protocol Gap | SDK currently always replies with `EmptyContinueResponse` when no response is set ([extproc.go](extproc.go)) | Tracked via `CONFORMANCE_STRICT_OBSERVABILITY=1` (`observability_mode_envoy_gap`) |
-| Protocol configuration (`protocol_config`) | Not Yet Supported | `ProcessingRequest.protocol_config` is not yet surfaced on `RequestContext` | Tracked in roadmap |
-| Dynamic mode override (`mode_override`) | Not Yet Supported | `ProcessingResponse.mode_override` | Tracked in roadmap |
-| Dynamic metadata & attributes (`metadata_context`, `dynamic_metadata`, `attributes`) | Not Yet Supported | `ProcessingRequest` / `ProcessingResponse` metadata & CEL attribute fields | Tracked in roadmap |
-| Per-message timeout override (`override_message_timeout`) | Not Yet Supported | `ProcessingResponse.override_message_timeout` | Tracked in roadmap |
-| `CommonResponse_CONTINUE_AND_REPLACE` & `CommonResponse.trailers` | Not Yet Supported | Header-phase body/trailer replacement | Tracked in roadmap |
-| `FULL_DUPLEX_STREAMED`, `StreamedImmediateResponse`, `RequestDrain`, `GRPC` body mode | Not Yet Supported | Requires a non-1:1 streaming model beyond `RequestProcessor` | Tracked in roadmap |
+<!-- BEGIN GENERATED CONFORMANCE MATRIX -->
+
+| Category | Capability | SDK Status | SDK Surface | v1.37-latest | v1.38-latest | v1.39-latest | v1.40-latest | Notes |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| Headers | Request & response header callbacks (SEND) | Supported | `RequestProcessor.ProcessRequestHeaders, ProcessResponseHeaders` | PASS (3/3) | PASS (3/3) | PASS (3/3) | PASS (3/3) | HTTP/1.1 & h2c; multi-value, RawValues, SplitList, RequestContext fields & cross-phase state |
+| Headers | Skip request headers (request_header_mode: SKIP) | Supported | `newRequestContext` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Response-only processing without initial request headers phase |
+| Headers | Header read representation (AllHeaders) | Supported | `Get, Values, RawValues, Has, SplitList` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | Wire-order repeated headers, comma preservation, opt-in SplitList, raw non-UTF-8 bytes |
+| Headers | Header mutations (add absent, overwrite, remove) | Supported | `AddHeader*, OverwriteHeader*, RemoveHeader*` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | HTTP/1.1 & h2c |
+| Headers | Header append_action on existing keys (ADD_IF_ABSENT, APPEND) | Partial | `AddHeader*, AppendHeader*, UpdateHeader*` | KNOWN GAP | KNOWN GAP | KNOWN GAP | KNOWN GAP | Envoy ext_proc ignores append_action (envoyproxy/envoy#48886); gated by CONFORMANCE_STRICT_APPEND_ACTION=1 |
+| Bodies | Body mode NONE (bodyless & pass-through) | Supported | `ProcessingMode NONE` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | GET without body and POST pass-through without invoking body callbacks |
+| Bodies | Buffered body processing (grow, shrink, clear, chunked upstream) | Supported | `Process*Body, ReplaceBody, ClearBody` | PASS (3/3) | PASS (3/3) | PASS (3/3) | PASS (3/3) | Updates Content-Length and handles chunked HTTP/1.1 upstream assembly |
+| Bodies | Streamed body processing (chunk replace & clear) | Supported | `ReplaceBodyChunk, ClearBodyChunk` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | Multi-chunk HTTP/1.1 and HTTP/2 DATA frames without mutating Content-Length |
+| Bodies | Buffered-partial body processing | Supported | `Process*Body (BUFFERED_PARTIAL)` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Verified both within and exceeding per_request_buffer_limit_bytes |
+| Trailers | Request & response trailers (HTTP/1.1 & h2c) | Supported | `ProcessRequestTrailers, ProcessResponseTrailers` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | Chunked HTTP/1.1 & HTTP/2 trailer read/overwrite/add + counter metrics |
+| Routing & Local Reply | Route cache re-evaluation (header & body phases) | Supported | `ClearRouteCache, UnClearRouteCache` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | Upstream re-routing via :authority mutation and ClearRouteCache |
+| Routing & Local Reply | Immediate local responses & trailer fallback | Partial | `CancelRequest` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | GrpcStatus & Details not yet exposed; Envoy StatusCode omits 418 |
+| Routing & Local Reply | Per-route filter disable (ExtProcPerRoute) | Supported | `ExtProcPerRoute.disabled` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Processor bypassed when disabled on route |
+| Resilience & Chaining | Downstream client cancellation (send & recv) | Supported | `ErrorHandler (codes.Canceled)` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Graceful teardown with zero errored-stream or phase-error counts |
+| Resilience & Chaining | Per-message timeout (fail-closed & fail-open) | Supported | `message_timeout, failure_mode_allow` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | 504 when failure_mode_allow=false; upstream pass-through when true |
+| Resilience & Chaining | Processor failure modes (continue vs abort) | Supported | `AbortOnProcessorFailure` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Covers continue-on-error, abort fail-closed, and abort fail-open |
+| Resilience & Chaining | Multi-filter ext_proc chaining | Supported | `GenericExtProcServer` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Sequential two-filter header, raw-byte, and body mutations |
+| Spec Extensions | Observability mode (observability_mode: true) | Protocol Gap | `GenericExtProcServer.Process` | KNOWN GAP | KNOWN GAP | KNOWN GAP | KNOWN GAP | SDK currently sends EmptyContinueResponse; gated by CONFORMANCE_STRICT_OBSERVABILITY=1 |
+| Spec Extensions | Protocol configuration (protocol_config) | Not Yet Supported | `ProcessingRequest.protocol_config` | — | — | — | — | Not yet surfaced on RequestContext |
+| Spec Extensions | Dynamic mode override (mode_override) | Not Yet Supported | `ProcessingResponse.mode_override` | — | — | — | — | Not yet exposed |
+| Spec Extensions | Dynamic metadata & CEL attributes | Not Yet Supported | `metadata_context, dynamic_metadata, attributes` | — | — | — | — | Not yet exposed |
+| Spec Extensions | Per-message timeout override | Not Yet Supported | `override_message_timeout` | — | — | — | — | Not yet exposed |
+| Spec Extensions | CONTINUE_AND_REPLACE & full-duplex streaming | Not Yet Supported | `CONTINUE_AND_REPLACE, FULL_DUPLEX_STREAMED, GRPC` | — | — | — | — | Requires non-1:1 streaming model beyond RequestProcessor |
+
+<!-- END GENERATED CONFORMANCE MATRIX -->
 
 ---
 
@@ -79,6 +87,8 @@ cd conformance && go test -short -v ./...
 just conformance
 just conformance-version v1.40-latest
 just conformance-matrix
+just conformance-report
+just sync-envoy-versions
 ```
 
 Run the smoke load tests (full chain via k6, or direct gRPC via `loadgen`):

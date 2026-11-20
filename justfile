@@ -1,4 +1,6 @@
 
+k6_image := env_var_or_default("K6_IMAGE", "grafana/k6:1.0.0")
+
 default:
     just --list
 
@@ -16,6 +18,11 @@ tidy-all:
     cd examples && go mod tidy
     cd test && go mod tidy
     cd conformance && go mod tidy
+
+# verify all Go modules are tidy with no diff
+check-tidy:
+    just tidy-all
+    git diff --exit-code -- go.mod go.sum examples/go.mod examples/go.sum test/go.mod test/go.sum conformance/go.mod conformance/go.sum
 
 # format code
 format:
@@ -48,8 +55,8 @@ coverage:
 # Run a k6 load test script from loadtest/ against the containerized stack
 # (envoy -> extproc -> echo upstream). Usage: just loadtest <script> [k6 args...]
 loadtest *args="smoke.js":
-    docker pull grafana/k6
-    docker run --rm --network host -v "$(pwd)/loadtest:/scripts" grafana/k6 run /scripts/{{args}}
+    docker pull {{k6_image}}
+    docker run --rm --network host -v "$(pwd)/loadtest:/scripts" {{k6_image}} run /scripts/{{args}}
 
 # Run the k6 smoke load test against the full containerized envoy chain.
 loadtest-smoke:
@@ -107,6 +114,21 @@ conformance-matrix *flags="-v":
         echo "=== Envoy Conformance: ${v} ==="
         (cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${v}" go test {{flags}} ./...)
     done
+
+# Run the supported Envoy conformance matrix, emit JSON/Markdown reports, and update CONFORMANCE.md.
+conformance-report *flags="-race -count=1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f conformance/results-*.json
+    for v in $(jq -r '.supported[]' conformance/envoy-versions.json); do
+        echo "=== Envoy Conformance: ${v} ==="
+        (cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${v}" go test -v {{flags}} -json ./... > "results-${v}.json")
+    done
+    (cd conformance && go run ./cmd/report --results-dir . --strict --markdown-out conformance-report.md --json-out conformance-summary.json --update-conformance-md ../CONFORMANCE.md)
+
+# Sync conformance/envoy-versions.json with active Envoy releases from endoflife.date.
+sync-envoy-versions:
+    cd conformance && go run ./cmd/sync-versions --write envoy-versions.json
 
 # run a specific example
 run example="noop":

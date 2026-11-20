@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: "/examples"
+    schedule:
+      interval: weekly
+    groups:
+      examples-deps:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: "/test"
+    schedule:
+      interval: weekly
+    groups:
+      test-deps:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: "/conformance"
+    schedule:
+      interval: weekly
+    groups:
+      conformance-deps:
+        patterns:
+          - "*"

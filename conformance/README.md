@@ -44,6 +44,18 @@ Run sequentially across all supported Envoy versions in `envoy-versions.json`:
 just conformance-matrix
 ```
 
+Run the matrix, generate JSON/Markdown summaries, and refresh `../CONFORMANCE.md`:
+
+```sh
+just conformance-report
+```
+
+Sync `envoy-versions.json` against active Envoy release cycles (`endoflife.date`):
+
+```sh
+just sync-envoy-versions
+```
+
 ## Environment Variables
 
 | Variable | Default | Purpose |

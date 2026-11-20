@@ -44,6 +44,32 @@ func TestEnvoyVersionManifest(t *testing.T) {
 	}
 }
 
+func TestSyncEnvoyVersionsFromEOL(t *testing.T) {
+	payload := `[
+		{"cycle":"1.40","eol":false},
+		{"cycle":"1.39","eol":"2027-07-14"},
+		{"cycle":"1.38","eol":"2027-04-23"},
+		{"cycle":"1.37","eol":"2027-01-13"},
+		{"cycle":"1.36","eol":"2026-10-14"},
+		{"cycle":"1.9","eol":"2020-04-01"}
+	]`
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	got, err := SyncEnvoyVersionsFromEOL([]byte(payload), now, []string{"dev"})
+	if err != nil {
+		t.Fatalf("SyncEnvoyVersionsFromEOL error: %v", err)
+	}
+	wantSupported := []string{"v1.37-latest", "v1.38-latest", "v1.39-latest", "v1.40-latest"}
+	if !slices.Equal(got.Supported, wantSupported) {
+		t.Errorf("Supported = %v, want %v", got.Supported, wantSupported)
+	}
+	if got.Default != "v1.40-latest" {
+		t.Errorf("Default = %q, want v1.40-latest", got.Default)
+	}
+	if !slices.Equal(got.Canary, []string{"dev"}) {
+		t.Errorf("Canary = %v, want [dev]", got.Canary)
+	}
+}
+
 func TestBuildBootstrapValidates(t *testing.T) {
 	_, rawJSON, err := BuildBootstrap(BootstrapParams{
 		UpstreamHost:          "host.docker.internal",
