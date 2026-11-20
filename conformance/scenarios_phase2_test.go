@@ -1111,4 +1111,302 @@ func runPhase2Scenarios(t *testing.T, env conformanceEnv) {
 		}
 		env.runner.AssertNoProtocolErrors(t)
 	})
+
+	t.Run("mode_override", func(t *testing.T) {
+		t.Run("opt_in_buffered_bodies_and_trailers", func(t *testing.T) {
+			reqCase := "mode-override-full-req"
+			var reqBodyCalled, reqTrCalled, respHdrsCalled, respTrCalled atomic.Bool
+			env.extprocSrv.Processor.Register(reqCase, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					return ctx.OverrideMode(extproc.ModeOverride{
+						RequestBodyMode:     extproc.BodyModeBuffered,
+						ResponseBodyMode:    extproc.BodyModeBuffered,
+						RequestTrailerMode:  extproc.HeaderModeSend,
+						ResponseTrailerMode: extproc.HeaderModeSend,
+					})
+				},
+				RequestBody: func(ctx *extproc.RequestContext, body []byte) error {
+					reqBodyCalled.Store(true)
+					if string(body) != "raw-req" {
+						t.Errorf("RequestBody = %q, want raw-req", string(body))
+					}
+					return ctx.ReplaceBody([]byte("mutated-req"))
+				},
+				RequestTrailers: func(ctx *extproc.RequestContext, trailers extproc.AllHeaders) error {
+					reqTrCalled.Store(true)
+					if got, ok := trailers.Get("x-req-tr"); !ok || got != "orig-req" {
+						t.Errorf("RequestTrailers x-req-tr = (%q, %v), want (orig-req, true)", got, ok)
+					}
+					return ctx.OverwriteHeader("x-req-tr", extproc.HeaderValue{RawValue: []byte("mutated-req-tr")})
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					respHdrsCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+				ResponseTrailers: func(ctx *extproc.RequestContext, trailers extproc.AllHeaders) error {
+					respTrCalled.Store(true)
+					if got, ok := trailers.Get("x-resp-tr"); !ok || got != "orig-resp" {
+						t.Errorf("ResponseTrailers x-resp-tr = (%q, %v), want (orig-resp, true)", got, ok)
+					}
+					_ = ctx.OverwriteHeader("x-resp-tr", extproc.HeaderValue{RawValue: []byte("mutated-resp-tr")})
+					return ctx.AddHeader("x-resp-added-tr", extproc.HeaderValue{RawValue: []byte("added")})
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(reqCase) })
+
+			req1, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/mode-override/full", struct{ io.Reader }{strings.NewReader("raw-req")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req1.ContentLength = -1
+			req1.Header.Set(CaseHeader, reqCase)
+			req1.Header.Set("x-upstream-trailer-x-resp-tr", "orig-resp")
+			req1.Trailer = http.Header{
+				"X-Req-Tr": []string{"orig-req"},
+			}
+
+			resp1, body1 := doRequest(t, env.h2cClient, req1)
+			if resp1.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp1.StatusCode, string(body1))
+			}
+			if !reqBodyCalled.Load() || !reqTrCalled.Load() || !respHdrsCalled.Load() || !respTrCalled.Load() {
+				t.Errorf("callbacks called: reqBody=%v reqTr=%v respHdrs=%v respTr=%v, want all true",
+					reqBodyCalled.Load(), reqTrCalled.Load(), respHdrsCalled.Load(), respTrCalled.Load())
+			}
+			echo := decodeEcho(t, body1)
+			if echo.Body != "mutated-req" {
+				t.Errorf("upstream echo.Body = %q, want mutated-req", echo.Body)
+			}
+			if got := echo.Trailers["x-req-tr"]; !slices.Equal(got, []string{"mutated-req-tr"}) {
+				t.Errorf("upstream x-req-tr = %v, want [mutated-req-tr]", got)
+			}
+			if got := resp1.Trailer.Get("X-Resp-Tr"); got != "mutated-resp-tr" {
+				t.Errorf("resp trailer X-Resp-Tr = %q, want mutated-resp-tr", got)
+			}
+			if got := resp1.Trailer.Get("X-Resp-Added-Tr"); got != "added" {
+				t.Errorf("resp trailer X-Resp-Added-Tr = %q, want added", got)
+			}
+
+			respCase := "mode-override-full-resp"
+			var respBodyCalled atomic.Bool
+			env.extprocSrv.Processor.Register(respCase, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					return ctx.OverrideMode(extproc.ModeOverride{
+						RequestBodyMode:     extproc.BodyModeBuffered,
+						ResponseBodyMode:    extproc.BodyModeBuffered,
+						RequestTrailerMode:  extproc.HeaderModeSend,
+						ResponseTrailerMode: extproc.HeaderModeSend,
+					})
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, body []byte) error {
+					respBodyCalled.Store(true)
+					if string(body) != "raw-resp" {
+						t.Errorf("ResponseBody = %q, want raw-resp", string(body))
+					}
+					return ctx.ReplaceBody([]byte("mutated-resp"))
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(respCase) })
+
+			req2, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/mode-override/full", strings.NewReader("raw-req"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req2.Header.Set(CaseHeader, respCase)
+			req2.Header.Set("x-upstream-raw-body", "raw-resp")
+
+			resp2, body2 := doRequest(t, env.h2cClient, req2)
+			if resp2.StatusCode != http.StatusOK {
+				t.Fatalf("resp replace status = %d, want 200 (body=%q)", resp2.StatusCode, string(body2))
+			}
+			if !respBodyCalled.Load() {
+				t.Error("expected ProcessResponseBody to be invoked via mode_override")
+			}
+			if string(body2) != "mutated-resp" {
+				t.Errorf("client response body = %q, want mutated-resp", string(body2))
+			}
+		})
+
+		t.Run("skip_remaining_phases", func(t *testing.T) {
+			caseID := "mode-override-skip"
+			var reqBodyCalled, respHdrsCalled, respBodyCalled atomic.Bool
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					if err := ctx.AddHeader("x-fast-path", extproc.HeaderValue{RawValue: []byte("yes")}); err != nil {
+						return err
+					}
+					return ctx.SkipRemainingPhases()
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					reqBodyCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					respHdrsCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					respBodyCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/mode-override/skip", strings.NewReader("untouched"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			echo := decodeEcho(t, body)
+			if got := echo.Headers["x-fast-path"]; !slices.Equal(got, []string{"yes"}) {
+				t.Errorf("upstream x-fast-path = %v, want [yes]", got)
+			}
+			if echo.Body != "untouched" {
+				t.Errorf("upstream body = %q, want untouched", echo.Body)
+			}
+			if reqBodyCalled.Load() || respHdrsCalled.Load() || respBodyCalled.Load() {
+				t.Errorf("unexpected callbacks after SkipRemainingPhases: reqBody=%v respHdrs=%v respBody=%v",
+					reqBodyCalled.Load(), respHdrsCalled.Load(), respBodyCalled.Load())
+			}
+			if got := resp.Header.Get("x-extproc-names"); got != "" {
+				t.Errorf("x-extproc-names = %q, want empty when ResponseHeaders skipped", got)
+			}
+		})
+
+		t.Run("response_headers_streamed_body", func(t *testing.T) {
+			caseID := "mode-override-resp-stream"
+			var reqBodyCalled atomic.Bool
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					reqBodyCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					return ctx.OverrideMode(extproc.ModeOverride{
+						ResponseBodyMode: extproc.BodyModeStreamed,
+					})
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, body []byte) error {
+					if len(body) > 0 {
+						return ctx.ReplaceBodyChunk(bytes.ToUpper(body))
+					}
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/profile/mode-override/resp-stream", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+			req.Header.Set("x-upstream-raw-body", "part1-part2-part3")
+			req.Header.Set("x-upstream-chunks", "3")
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			if reqBodyCalled.Load() {
+				t.Error("RequestBody should not run under NONE baseline")
+			}
+			if string(body) != "PART1-PART2-PART3" {
+				t.Errorf("streamed mutated body = %q, want PART1-PART2-PART3", string(body))
+			}
+		})
+
+		t.Run("ignored_when_disabled_on_filter", func(t *testing.T) {
+			caseID := "mode-override-disabled"
+			var reqBodyCalled atomic.Bool
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					return ctx.OverrideMode(extproc.ModeOverride{
+						RequestBodyMode: extproc.BodyModeBuffered,
+					})
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					reqBodyCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/mode/none/override-disabled", strings.NewReader("no-override"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			if reqBodyCalled.Load() {
+				t.Error("RequestBody should not run when allow_mode_override is false on filter")
+			}
+		})
+
+		t.Run("allowed_override_modes_allowlist", func(t *testing.T) {
+			allowedCase := "mode-override-allowlist-ok"
+			var allowedBodyCalled atomic.Bool
+			env.extprocSrv.Processor.Register(allowedCase, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					return ctx.OverrideMode(extproc.ModeOverride{
+						RequestBodyMode: extproc.BodyModeStreamed,
+					})
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					allowedBodyCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(allowedCase) })
+
+			req1, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/mode-override-allowlist/check", strings.NewReader("probe"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req1.Header.Set(CaseHeader, allowedCase)
+			resp1, body1 := doRequest(t, env.http1Client, req1)
+			if resp1.StatusCode != http.StatusOK {
+				t.Fatalf("allowed status = %d, want 200 (body=%q)", resp1.StatusCode, string(body1))
+			}
+			if !allowedBodyCalled.Load() {
+				t.Error("expected RequestBody to run when OverrideMode matches allowed_override_modes")
+			}
+
+			disallowedCase := "mode-override-allowlist-denied"
+			var disallowedBodyCalled atomic.Bool
+			env.extprocSrv.Processor.Register(disallowedCase, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					return ctx.OverrideMode(extproc.ModeOverride{
+						RequestBodyMode: extproc.BodyModeBuffered,
+					})
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					disallowedBodyCalled.Store(true)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(disallowedCase) })
+
+			req2, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/mode-override-allowlist/check", strings.NewReader("probe"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req2.Header.Set(CaseHeader, disallowedCase)
+			resp2, body2 := doRequest(t, env.http1Client, req2)
+			if resp2.StatusCode != http.StatusOK {
+				t.Fatalf("disallowed status = %d, want 200 (body=%q)", resp2.StatusCode, string(body2))
+			}
+			if disallowedBodyCalled.Load() {
+				t.Error("RequestBody should not run when OverrideMode is outside allowed_override_modes")
+			}
+		})
+	})
 }
