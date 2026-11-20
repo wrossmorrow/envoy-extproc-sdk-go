@@ -16,11 +16,11 @@ Verification in this repository is intentionally split into two tiers:
 | Go Toolchain (`go.mod`) | `go 1.25.0` | Minimum module version in [go.mod](go.mod) |
 | `go-control-plane/envoy` (`go.mod`) | `v1.37.0` | Compile-time `ext_proc` v3 protobuf definitions |
 | `google.golang.org/grpc` (`go.mod`) | `v1.83.0` | Bidirectional gRPC stream server + health |
-| Routine CI Envoy (`test/compose.yaml`) | `v1.35-latest` | Default tag in [test/compose.yaml](test/compose.yaml); override with `ENVOY_VERSION` |
+| Routine CI Envoy (`test/compose.yaml`) | `v1.40-latest` | Default tag in [test/compose.yaml](test/compose.yaml); override with `ENVOY_VERSION` |
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]
-> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete: the [conformance/](conformance) harness, [conformance/features.yaml](conformance/features.yaml) manifest, report generator (`just conformance-report`), deterministic Docker/CI module checks, and automated Envoy release-window sync ([.github/workflows/envoy-versions-sync.yaml](.github/workflows/envoy-versions-sync.yaml)) are in place. Phase 4 covers the flagged SDK gaps and new v3 spec extensions.
+> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete, and the flagged `ObservabilityMode` and `HeaderAppendAction` gaps are resolved and verified across `v1.37`–`v1.40`. Phase 4 covers new v3 spec extensions (`protocol_config`, `mode_override`, dynamic metadata/attributes, `override_message_timeout`, and full-duplex streaming).
 
 ---
 
@@ -34,7 +34,7 @@ Verification in this repository is intentionally split into two tiers:
 | Headers | Skip request headers (request_header_mode: SKIP) | Supported | `newRequestContext` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Response-only processing without initial request headers phase |
 | Headers | Header read representation (AllHeaders) | Supported | `Get, Values, RawValues, Has, SplitList` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | Wire-order repeated headers, comma preservation, opt-in SplitList, raw non-UTF-8 bytes |
 | Headers | Header mutations (add absent, overwrite, remove) | Supported | `AddHeader*, OverwriteHeader*, RemoveHeader*` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | HTTP/1.1 & h2c |
-| Headers | Header append_action on existing keys (ADD_IF_ABSENT, APPEND) | Partial | `AddHeader*, AppendHeader*, UpdateHeader*` | KNOWN GAP | KNOWN GAP | KNOWN GAP | KNOWN GAP | Envoy ext_proc ignores append_action (envoyproxy/envoy#48886); gated by CONFORMANCE_STRICT_APPEND_ACTION=1 |
+| Headers | Header append_action on existing keys (ADD_IF_ABSENT, APPEND) | Supported | `AddHeader*, AppendHeader*, UpdateHeader*` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Append=true set for APPEND_IF_EXISTS_OR_ADD; phase-header tracking enforces ADD_IF_ABSENT & OVERWRITE_IF_EXISTS (envoyproxy/envoy#48886) |
 | Bodies | Body mode NONE (bodyless & pass-through) | Supported | `ProcessingMode NONE` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | GET without body and POST pass-through without invoking body callbacks |
 | Bodies | Buffered body processing (grow, shrink, clear, chunked upstream) | Supported | `Process*Body, ReplaceBody, ClearBody` | PASS (3/3) | PASS (3/3) | PASS (3/3) | PASS (3/3) | Updates Content-Length and handles chunked HTTP/1.1 upstream assembly |
 | Bodies | Streamed body processing (chunk replace & clear) | Supported | `ReplaceBodyChunk, ClearBodyChunk` | PASS (2/2) | PASS (2/2) | PASS (2/2) | PASS (2/2) | Multi-chunk HTTP/1.1 and HTTP/2 DATA frames without mutating Content-Length |
@@ -47,7 +47,7 @@ Verification in this repository is intentionally split into two tiers:
 | Resilience & Chaining | Per-message timeout (fail-closed & fail-open) | Supported | `message_timeout, failure_mode_allow` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | 504 when failure_mode_allow=false; upstream pass-through when true |
 | Resilience & Chaining | Processor failure modes (continue vs abort) | Supported | `AbortOnProcessorFailure` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Covers continue-on-error, abort fail-closed, and abort fail-open |
 | Resilience & Chaining | Multi-filter ext_proc chaining | Supported | `GenericExtProcServer` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Sequential two-filter header, raw-byte, and body mutations |
-| Spec Extensions | Observability mode (observability_mode: true) | Protocol Gap | `GenericExtProcServer.Process` | KNOWN GAP | KNOWN GAP | KNOWN GAP | KNOWN GAP | SDK currently sends EmptyContinueResponse; gated by CONFORMANCE_STRICT_OBSERVABILITY=1 |
+| Spec Extensions | Observability mode (observability_mode: true) | Supported | `RequestContext.ObservabilityMode, GenericExtProcServer.Process` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Callbacks run with ctx.ObservabilityMode=true while suppressing ProcessingResponse (spurious_msgs_received == 0) |
 | Spec Extensions | Protocol configuration (protocol_config) | Not Yet Supported | `ProcessingRequest.protocol_config` | — | — | — | — | Not yet surfaced on RequestContext |
 | Spec Extensions | Dynamic mode override (mode_override) | Not Yet Supported | `ProcessingResponse.mode_override` | — | — | — | — | Not yet exposed |
 | Spec Extensions | Dynamic metadata & CEL attributes | Not Yet Supported | `metadata_context, dynamic_metadata, attributes` | — | — | — | — | Not yet exposed |
@@ -68,7 +68,7 @@ just unit-test
 go test -v -race ./...
 ```
 
-Run the routine Docker Compose integration suite (defaults to `ENVOY_VERSION=v1.35-latest`):
+Run the routine Docker Compose integration suite (defaults to `ENVOY_VERSION=v1.40-latest`):
 
 ```sh
 just integration-test

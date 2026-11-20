@@ -42,11 +42,11 @@ features:
   - id: headers_append_action
     category: Headers
     title: "Header append_action on existing keys (ADD_IF_ABSENT, APPEND)"
-    sdk_status: partial
+    sdk_status: supported
     sdk_surface: "AddHeader*, AppendHeader*, UpdateHeader*"
     tests:
-      - TestEnvoyConformance/header_append_action_envoy_gap
-    notes: "Envoy ext_proc ignores append_action (envoyproxy/envoy#48886); gated by CONFORMANCE_STRICT_APPEND_ACTION=1"
+      - TestEnvoyConformance/header_append_actions
+    notes: "Append=true set for APPEND_IF_EXISTS_OR_ADD; phase-header tracking enforces ADD_IF_ABSENT & OVERWRITE_IF_EXISTS (envoyproxy/envoy#48886)"
 
   - id: body_none
     category: Bodies
@@ -166,11 +166,11 @@ features:
   - id: observability_mode
     category: Spec Extensions
     title: "Observability mode (observability_mode: true)"
-    sdk_status: protocol_gap
-    sdk_surface: "GenericExtProcServer.Process"
+    sdk_status: supported
+    sdk_surface: "RequestContext.ObservabilityMode, GenericExtProcServer.Process"
     tests:
-      - TestEnvoyConformance/observability_mode_envoy_gap
-    notes: "SDK currently sends EmptyContinueResponse; gated by CONFORMANCE_STRICT_OBSERVABILITY=1"
+      - TestEnvoyConformance/observability_mode
+    notes: "Callbacks run with ctx.ObservabilityMode=true while suppressing ProcessingResponse (spurious_msgs_received == 0)"
 
   - id: protocol_config
     category: Spec Extensions
