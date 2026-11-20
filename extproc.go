@@ -245,6 +245,8 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		if pc := procReq.GetProtocolConfig(); pc != nil {
 			rc.ProtocolConfig = protocolConfigFromProto(pc)
 		}
+		rc.mergeMetadataContext(procReq.GetMetadataContext())
+		rc.mergeAttributes(procReq.GetAttributes())
 	}
 
 	ps = time.Now()

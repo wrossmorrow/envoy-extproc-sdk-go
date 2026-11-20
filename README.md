@@ -100,6 +100,8 @@ The `RequestContext` is initialized with request data when request headers are r
 * a flag `EndOfStream` from gRPC messages for header and body phases
 * a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages; note Envoy only delivers body messages under `observability_mode: true` when body mode is `STREAMED`, `GRPC`, or `NONE`, not `BUFFERED`)
 * `ProtocolConfig` (`*ProtocolConfig`) reflecting `ProcessingRequest.protocol_config` sent by Envoy on the first message of the stream (`RequestBodyMode`, `ResponseBodyMode`, and `SendBodyWithoutWaitingForHeaderResponse`), retained across all phases of that stream
+* `Metadata` (`map[string]map[string]any`) and `TypedMetadata` (`map[string]*anypb.Any`) holding dynamic metadata forwarded by Envoy (`metadata_options.forwarding_namespaces`), merged across phases of the stream
+* `Attributes` (`map[string]any`) holding evaluated Envoy/CEL `request_attributes` and `response_attributes` flattened by attribute name (e.g. `request.protocol`, `xds.route_name`, `response.code`), merged across phases of the stream
 
 This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `any`, so to use them you must re-type the data upon retrieval. See the [data](#data) or [digest](#digest) examples.
 
@@ -193,6 +195,23 @@ Or skip all remaining phases for a fast-path request:
 return ctx.SkipRemainingPhases()
 ```
 Use `ClearModeOverride()` to undo a pending override in the same header phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`BodyModeNone` is `0`), so when calling `OverrideMode` from `ProcessRequestHeaders`, either set both `RequestBodyMode` and `ResponseBodyMode` explicitly or start from `mode := ctx.DefaultModeOverride()` (which pre-populates both body modes from `ctx.ProtocolConfig`). See the [masker](#masker) example for a processor that pairs dynamic mode overrides with buffered JSON body replacement.
+
+### Dynamic Metadata & Attributes
+
+When Envoy configures `metadata_options.forwarding_namespaces`, `request_attributes`, or `response_attributes` on the `ext_proc` filter, Envoy includes those values on incoming `ProcessingRequest` messages and the SDK merges them across all phases of the stream onto:
+* `ctx.Metadata` (`map[string]map[string]any`) — untyped filter metadata keyed by namespace
+* `ctx.TypedMetadata` (`map[string]*anypb.Any`) — typed filter metadata keyed by namespace
+* `ctx.Attributes` (`map[string]any`) — evaluated CEL attributes flattened by attribute name
+
+To emit metadata back to downstream Envoy filters or access logs (also attached to `CancelRequest` immediate responses), set it on the current phase:
+```go
+_ = ctx.SetDynamicMetadata("com.acme.extproc", "tenant", "acme")
+_ = ctx.SetDynamicMetadataNamespace("com.acme.extproc", map[string]any{
+	"risk_score": 0.1,
+	"allowed":    true,
+})
+```
+Use `ctx.ClearDynamicMetadata()` to discard pending outbound metadata for the current phase. Note that Envoy ignores returned namespaces unless they are listed in `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct` converts Go integer values to `float64` when read back via `AsMap()`.
 
 ## Examples
 
