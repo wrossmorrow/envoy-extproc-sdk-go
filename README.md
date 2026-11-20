@@ -99,6 +99,7 @@ The `RequestContext` is initialized with request data when request headers are r
 * an accumulator `Duration` _for the time spent in external processing_
 * a flag `EndOfStream` from gRPC messages for header and body phases
 * a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages; note Envoy only delivers body messages under `observability_mode: true` when body mode is `STREAMED`, `GRPC`, or `NONE`, not `BUFFERED`)
+* `ProtocolConfig` (`*ProtocolConfig`) reflecting `ProcessingRequest.protocol_config` sent by Envoy on the first message of the stream (`RequestBodyMode`, `ResponseBodyMode`, and `SendBodyWithoutWaitingForHeaderResponse`), retained across all phases of that stream
 
 This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `any`, so to use them you must re-type the data upon retrieval. See the [data](#data) or [digest](#digest) examples.
 
@@ -191,7 +192,7 @@ Or skip all remaining phases for a fast-path request:
 ```go
 return ctx.SkipRemainingPhases()
 ```
-Use `ClearModeOverride()` to undo a pending override in the same header phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`BodyModeNone` is `0`), so when calling `OverrideMode` from `ProcessRequestHeaders`, set both `RequestBodyMode` and `ResponseBodyMode` explicitly. See the [masker](#masker) example for a processor that pairs dynamic mode overrides with buffered JSON body replacement.
+Use `ClearModeOverride()` to undo a pending override in the same header phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`BodyModeNone` is `0`), so when calling `OverrideMode` from `ProcessRequestHeaders`, either set both `RequestBodyMode` and `ResponseBodyMode` explicitly or start from `mode := ctx.DefaultModeOverride()` (which pre-populates both body modes from `ctx.ProtocolConfig`). See the [masker](#masker) example for a processor that pairs dynamic mode overrides with buffered JSON body replacement.
 
 ## Examples
 

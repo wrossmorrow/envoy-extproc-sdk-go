@@ -175,10 +175,11 @@ features:
   - id: protocol_config
     category: Spec Extensions
     title: Protocol configuration (protocol_config)
-    sdk_status: unsupported
-    sdk_surface: "ProcessingRequest.protocol_config"
-    tests: []
-    notes: "Not yet surfaced on RequestContext"
+    sdk_status: supported
+    sdk_surface: "ProtocolConfig, RequestContext.ProtocolConfig, RequestContext.DefaultModeOverride"
+    tests:
+      - TestEnvoyConformance/protocol_config
+    notes: "Stream-scoped capture across NONE/BUFFERED/STREAMED/BUFFERED_PARTIAL, request_header_mode=SKIP, send_body_without_waiting_for_header_response, and DefaultModeOverride"
 
   - id: mode_override
     category: Spec Extensions

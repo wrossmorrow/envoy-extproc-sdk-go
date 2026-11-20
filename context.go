@@ -112,6 +112,25 @@ func (m ModeOverride) ToEnvoyProcessingMode() (*extproccfgv3.ProcessingMode, err
 	return pm, nil
 }
 
+// ProtocolConfig describes the Envoy ext_proc filter's protocol configuration
+// for the current stream, captured from the first ProcessingRequest message.
+type ProtocolConfig struct {
+	RequestBodyMode                         BodySendMode
+	ResponseBodyMode                        BodySendMode
+	SendBodyWithoutWaitingForHeaderResponse bool
+}
+
+func protocolConfigFromProto(pc *extprocv3.ProtocolConfiguration) *ProtocolConfig {
+	if pc == nil {
+		return nil
+	}
+	return &ProtocolConfig{
+		RequestBodyMode:                         BodySendMode(pc.GetRequestBodyMode()),
+		ResponseBodyMode:                        BodySendMode(pc.GetResponseBodyMode()),
+		SendBodyWithoutWaitingForHeaderResponse: pc.GetSendBodyWithoutWaitingForHeaderResponse(),
+	}
+}
+
 type PhaseResponse struct {
 	headerMutation    *extprocv3.HeaderMutation    // any response
 	bodyMutation      *extprocv3.BodyMutation      // body responses
@@ -192,6 +211,7 @@ type RequestContext struct {
 	Duration          time.Duration
 	EndOfStream       bool
 	ObservabilityMode bool
+	ProtocolConfig    *ProtocolConfig
 	data              map[string]any
 
 	phase           int
@@ -435,6 +455,26 @@ func (rc *RequestContext) SkipRemainingPhases() error {
 		RequestTrailerMode:  HeaderModeSkip,
 		ResponseTrailerMode: HeaderModeSkip,
 	})
+}
+
+// DefaultModeOverride returns a ModeOverride pre-populated with Envoy's
+// configured RequestBodyMode and ResponseBodyMode from ProtocolConfig (when
+// present) and HeaderModeDefault for header and trailer modes.
+//
+// Because Envoy's BodySendMode has no "keep default" enum (BodyModeNone is 0),
+// callers overriding a single body mode during ProcessRequestHeaders can start
+// from DefaultModeOverride() to preserve the other direction's body mode.
+func (rc *RequestContext) DefaultModeOverride() ModeOverride {
+	if rc == nil || rc.ProtocolConfig == nil {
+		return ModeOverride{}
+	}
+	return ModeOverride{
+		ResponseHeaderMode:  HeaderModeDefault,
+		RequestBodyMode:     rc.ProtocolConfig.RequestBodyMode,
+		ResponseBodyMode:    rc.ProtocolConfig.ResponseBodyMode,
+		RequestTrailerMode:  HeaderModeDefault,
+		ResponseTrailerMode: HeaderModeDefault,
+	}
 }
 
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
