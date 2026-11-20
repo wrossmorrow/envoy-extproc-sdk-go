@@ -193,10 +193,11 @@ features:
   - id: dynamic_metadata_and_attributes
     category: Spec Extensions
     title: Dynamic metadata & CEL attributes
-    sdk_status: unsupported
-    sdk_surface: "metadata_context, dynamic_metadata, attributes"
-    tests: []
-    notes: "Not yet exposed"
+    sdk_status: supported
+    sdk_surface: "Metadata, TypedMetadata, Attributes, SetDynamicMetadata, SetDynamicMetadataNamespace, ClearDynamicMetadata"
+    tests:
+      - TestEnvoyConformance/dynamic_metadata_and_attributes
+    notes: "Inbound untyped/typed metadata_context, outbound dynamic_metadata (receiving_namespaces allowlist & ImmediateResponse), and CEL request/response attributes"
 
   - id: override_message_timeout
     category: Spec Extensions
