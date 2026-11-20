@@ -150,12 +150,13 @@ static_resources:
                           cluster_name: masker
                         timeout: 30s
                       failure_mode_allow: true
+                      allow_mode_override: true
                       message_timeout: 0.2s
                       processing_mode:
                         request_header_mode: SEND
                         response_header_mode: SEND
-                        request_body_mode: BUFFERED
-                        response_body_mode: BUFFERED
+                        request_body_mode: NONE
+                        response_body_mode: NONE
                         request_trailer_mode: SKIP
                         response_trailer_mode: SKIP
                   - name: envoy.filters.http.ext_proc

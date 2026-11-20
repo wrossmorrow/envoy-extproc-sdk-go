@@ -191,7 +191,7 @@ Or skip all remaining phases for a fast-path request:
 ```go
 return ctx.SkipRemainingPhases()
 ```
-Use `ClearModeOverride()` to undo a pending override in the same header phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`BodyModeNone` is `0`), so when calling `OverrideMode` from `ProcessRequestHeaders`, set both `RequestBodyMode` and `ResponseBodyMode` explicitly.
+Use `ClearModeOverride()` to undo a pending override in the same header phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`BodyModeNone` is `0`), so when calling `OverrideMode` from `ProcessRequestHeaders`, set both `RequestBodyMode` and `ResponseBodyMode` explicitly. See the [masker](#masker) example for a processor that pairs dynamic mode overrides with buffered JSON body replacement.
 
 ## Examples
 
@@ -282,7 +282,7 @@ The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of 
 
 ### Masker
 
-The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBody`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data.
+The `maskerRequestProcessor` defined in `examples/masker.go` combines dynamic mode overrides (`RequestContext.OverrideMode` and `RequestContext.SkipRemainingPhases`) with whole-body modification (`RequestContext.ReplaceBody`). Paired with `allow_mode_override: true` and `NONE` default body modes in `examples/envoy.yaml`, it inspects `content-type` headers in `ProcessRequestHeaders` and `ProcessResponseHeaders` so Envoy only buffers JSON bodies when mask paths are configured for that direction (skipping non-JSON payloads and unneeded phases), then masks matching JSON paths with `****`. This mimics using edge functionality to protect client-side or server-side data without buffering every payload on the route.
 
 ### Echo
 
