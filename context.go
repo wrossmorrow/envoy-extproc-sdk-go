@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -57,11 +58,66 @@ func RequestPhaseToString(phase int) string {
 
 const kContentLength = "content-length"
 
+// HeaderSendMode controls whether Envoy sends headers or trailers in subsequent
+// phases of the current HTTP stream.
+type HeaderSendMode int32
+
+const (
+	HeaderModeDefault HeaderSendMode = HeaderSendMode(extproccfgv3.ProcessingMode_DEFAULT)
+	HeaderModeSend    HeaderSendMode = HeaderSendMode(extproccfgv3.ProcessingMode_SEND)
+	HeaderModeSkip    HeaderSendMode = HeaderSendMode(extproccfgv3.ProcessingMode_SKIP)
+)
+
+// BodySendMode controls how Envoy sends bodies in subsequent phases of the
+// current HTTP stream.
+//
+// Envoy's ProcessingMode proto has no "keep default" body enum: BodyModeNone (0)
+// instructs Envoy not to send that body, so callers overriding modes during
+// ProcessRequestHeaders should specify both RequestBodyMode and ResponseBodyMode.
+type BodySendMode int32
+
+const (
+	BodyModeNone               BodySendMode = BodySendMode(extproccfgv3.ProcessingMode_NONE)
+	BodyModeStreamed           BodySendMode = BodySendMode(extproccfgv3.ProcessingMode_STREAMED)
+	BodyModeBuffered           BodySendMode = BodySendMode(extproccfgv3.ProcessingMode_BUFFERED)
+	BodyModeBufferedPartial    BodySendMode = BodySendMode(extproccfgv3.ProcessingMode_BUFFERED_PARTIAL)
+	BodyModeFullDuplexStreamed BodySendMode = BodySendMode(extproccfgv3.ProcessingMode_FULL_DUPLEX_STREAMED)
+	BodyModeGRPC               BodySendMode = BodySendMode(extproccfgv3.ProcessingMode_GRPC)
+)
+
+// ModeOverride overrides Envoy's static processing_mode for the remainder of the
+// current HTTP transaction (requires allow_mode_override: true in Envoy).
+// RequestHeaderMode is omitted because Envoy ignores it on mode_override.
+type ModeOverride struct {
+	ResponseHeaderMode  HeaderSendMode
+	RequestBodyMode     BodySendMode
+	ResponseBodyMode    BodySendMode
+	RequestTrailerMode  HeaderSendMode
+	ResponseTrailerMode HeaderSendMode
+}
+
+// ToEnvoyProcessingMode validates m and converts it to Envoy's ProcessingMode proto.
+func (m ModeOverride) ToEnvoyProcessingMode() (*extproccfgv3.ProcessingMode, error) {
+	pm := &extproccfgv3.ProcessingMode{
+		RequestHeaderMode:   extproccfgv3.ProcessingMode_DEFAULT,
+		ResponseHeaderMode:  extproccfgv3.ProcessingMode_HeaderSendMode(m.ResponseHeaderMode),
+		RequestBodyMode:     extproccfgv3.ProcessingMode_BodySendMode(m.RequestBodyMode),
+		ResponseBodyMode:    extproccfgv3.ProcessingMode_BodySendMode(m.ResponseBodyMode),
+		RequestTrailerMode:  extproccfgv3.ProcessingMode_HeaderSendMode(m.RequestTrailerMode),
+		ResponseTrailerMode: extproccfgv3.ProcessingMode_HeaderSendMode(m.ResponseTrailerMode),
+	}
+	if err := pm.ValidateAll(); err != nil {
+		return nil, fmt.Errorf("invalid mode override: %w", err)
+	}
+	return pm, nil
+}
+
 type PhaseResponse struct {
 	headerMutation    *extprocv3.HeaderMutation    // any response
 	bodyMutation      *extprocv3.BodyMutation      // body responses
 	continueRequest   *extprocv3.CommonResponse    // headers/body responses
 	immediateResponse *extprocv3.ImmediateResponse // headers/body responses
+	modeOverride      *extproccfgv3.ProcessingMode // header responses only
 	clearRouteCache   bool
 }
 
@@ -291,6 +347,7 @@ func (rc *RequestContext) ResetPhase() error {
 	rc.response.bodyMutation = nil
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = nil
+	rc.response.modeOverride = nil
 	rc.response.clearRouteCache = false
 	return nil
 }
@@ -347,6 +404,39 @@ func (rc *RequestContext) UnClearRouteCache() {
 	rc.response.clearRouteCache = false
 }
 
+// OverrideMode sets ProcessingResponse.mode_override on the current header phase.
+// It returns an error if called during a non-header phase or if any mode enum is invalid.
+func (rc *RequestContext) OverrideMode(m ModeOverride) error {
+	switch rc.phase {
+	case REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_RESPONSE_HEADERS, REQUEST_PHASE_UNDETERMINED:
+	default:
+		return fmt.Errorf("mode_override is only supported during header phases, not %s", rc.GetPhaseName())
+	}
+	pm, err := m.ToEnvoyProcessingMode()
+	if err != nil {
+		return err
+	}
+	rc.response.modeOverride = pm
+	return nil
+}
+
+// ClearModeOverride removes any pending mode override for the current phase.
+func (rc *RequestContext) ClearModeOverride() {
+	rc.response.modeOverride = nil
+}
+
+// SkipRemainingPhases configures mode_override to skip all subsequent header,
+// body, and trailer phases for the current HTTP transaction.
+func (rc *RequestContext) SkipRemainingPhases() error {
+	return rc.OverrideMode(ModeOverride{
+		ResponseHeaderMode:  HeaderModeSkip,
+		RequestBodyMode:     BodyModeNone,
+		ResponseBodyMode:    BodyModeNone,
+		RequestTrailerMode:  HeaderModeSkip,
+		ResponseTrailerMode: HeaderModeSkip,
+	})
+}
+
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
 
 	// handle immediate responses
@@ -384,6 +474,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					Response: rc.response.continueRequest,
 				},
 			},
+			ModeOverride: rc.response.modeOverride,
 		}, nil
 
 	case REQUEST_PHASE_REQUEST_BODY:
@@ -412,6 +503,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					Response: rc.response.continueRequest,
 				},
 			},
+			ModeOverride: rc.response.modeOverride,
 		}, nil
 
 	case REQUEST_PHASE_RESPONSE_BODY:

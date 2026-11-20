@@ -3,6 +3,7 @@ package extproc
 import (
 	"testing"
 
+	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
@@ -656,4 +657,202 @@ func TestResponsesValidateAgainstPGVSchema(t *testing.T) {
 			}
 		})
 	}
+
+	for _, phase := range []int{REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_RESPONSE_HEADERS} {
+		for _, tc := range []struct {
+			name string
+			fn   func(rc *RequestContext) error
+		}{
+			{
+				name: "override_mode",
+				fn: func(rc *RequestContext) error {
+					return rc.OverrideMode(ModeOverride{
+						ResponseHeaderMode:  HeaderModeDefault,
+						RequestBodyMode:     BodyModeBuffered,
+						ResponseBodyMode:    BodyModeStreamed,
+						RequestTrailerMode:  HeaderModeSend,
+						ResponseTrailerMode: HeaderModeSkip,
+					})
+				},
+			},
+			{
+				name: "skip_remaining_phases",
+				fn:   func(rc *RequestContext) error { return rc.SkipRemainingPhases() },
+			},
+		} {
+			t.Run(tc.name+"_"+RequestPhaseToString(phase), func(t *testing.T) {
+				rc := newRequestContext()
+				if err := rc.ResetPhase(); err != nil {
+					t.Fatal(err)
+				}
+				rc.setPhase(phase)
+				if err := tc.fn(rc); err != nil {
+					t.Fatal(err)
+				}
+				resp, err := rc.GetResponse(phase)
+				if err != nil {
+					t.Fatalf("GetResponse(%d) returned error: %v", phase, err)
+				}
+				if verr := resp.ValidateAll(); verr != nil {
+					t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+				}
+			})
+		}
+	}
+}
+
+func TestOverrideModeValidatesEnumsAndPhases(t *testing.T) {
+	t.Run("allowed_phases", func(t *testing.T) {
+		for _, phase := range []int{
+			REQUEST_PHASE_UNDETERMINED,
+			REQUEST_PHASE_REQUEST_HEADERS,
+			REQUEST_PHASE_RESPONSE_HEADERS,
+		} {
+			rc := newRequestContext()
+			if err := rc.ResetPhase(); err != nil {
+				t.Fatal(err)
+			}
+			rc.setPhase(phase)
+			if err := rc.OverrideMode(ModeOverride{RequestBodyMode: BodyModeBuffered}); err != nil {
+				t.Errorf("OverrideMode in %s returned error: %v", RequestPhaseToString(phase), err)
+			}
+			if err := rc.SkipRemainingPhases(); err != nil {
+				t.Errorf("SkipRemainingPhases in %s returned error: %v", RequestPhaseToString(phase), err)
+			}
+		}
+	})
+
+	t.Run("disallowed_phases_fail_without_mutating", func(t *testing.T) {
+		for _, phase := range []int{
+			REQUEST_PHASE_REQUEST_BODY,
+			REQUEST_PHASE_RESPONSE_BODY,
+			REQUEST_PHASE_REQUEST_TRAILERS,
+			REQUEST_PHASE_RESPONSE_TRAILERS,
+		} {
+			rc := newRequestContext()
+			if err := rc.ResetPhase(); err != nil {
+				t.Fatal(err)
+			}
+			rc.setPhase(phase)
+			if err := rc.OverrideMode(ModeOverride{ResponseBodyMode: BodyModeBuffered}); err == nil {
+				t.Errorf("expected OverrideMode error in phase %s", RequestPhaseToString(phase))
+			}
+			if err := rc.SkipRemainingPhases(); err == nil {
+				t.Errorf("expected SkipRemainingPhases error in phase %s", RequestPhaseToString(phase))
+			}
+			if rc.response.modeOverride != nil {
+				t.Errorf("phase %s mutated response.modeOverride on error", RequestPhaseToString(phase))
+			}
+		}
+	})
+
+	t.Run("out_of_range_enums_rejected", func(t *testing.T) {
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+		rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		initial := ModeOverride{RequestBodyMode: BodyModeStreamed}
+		if err := rc.OverrideMode(initial); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := rc.OverrideMode(ModeOverride{ResponseHeaderMode: HeaderSendMode(99)}); err == nil {
+			t.Error("expected error for invalid HeaderSendMode")
+		}
+		if err := rc.OverrideMode(ModeOverride{RequestBodyMode: BodySendMode(99)}); err == nil {
+			t.Error("expected error for invalid BodySendMode")
+		}
+		if got := rc.response.modeOverride.GetRequestBodyMode(); got != extproccfgv3.ProcessingMode_STREAMED {
+			t.Errorf("existing modeOverride overwritten on error: got %v, want STREAMED", got)
+		}
+	})
+}
+
+func TestGetResponsePropagatesModeOverrideAndResetClearsIt(t *testing.T) {
+	t.Run("header_phases_attach_and_clear", func(t *testing.T) {
+		for _, phase := range []int{REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_RESPONSE_HEADERS} {
+			rc := newRequestContext()
+			if err := rc.ResetPhase(); err != nil {
+				t.Fatal(err)
+			}
+			rc.setPhase(phase)
+			if err := rc.OverrideMode(ModeOverride{
+				ResponseHeaderMode:  HeaderModeSkip,
+				RequestBodyMode:     BodyModeBuffered,
+				ResponseBodyMode:    BodyModeStreamed,
+				RequestTrailerMode:  HeaderModeSend,
+				ResponseTrailerMode: HeaderModeSkip,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			resp, err := rc.GetResponse(phase)
+			if err != nil {
+				t.Fatalf("GetResponse(%d) returned error: %v", phase, err)
+			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+			}
+			mo := resp.GetModeOverride()
+			if mo == nil {
+				t.Fatalf("expected ModeOverride on %s response", RequestPhaseToString(phase))
+			}
+			if mo.GetRequestHeaderMode() != extproccfgv3.ProcessingMode_DEFAULT ||
+				mo.GetResponseHeaderMode() != extproccfgv3.ProcessingMode_SKIP ||
+				mo.GetRequestBodyMode() != extproccfgv3.ProcessingMode_BUFFERED ||
+				mo.GetResponseBodyMode() != extproccfgv3.ProcessingMode_STREAMED ||
+				mo.GetRequestTrailerMode() != extproccfgv3.ProcessingMode_SEND ||
+				mo.GetResponseTrailerMode() != extproccfgv3.ProcessingMode_SKIP {
+				t.Errorf("unexpected ModeOverride fields: %+v", mo)
+			}
+
+			rc.ClearModeOverride()
+			respAfterClear, err := rc.GetResponse(phase)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if respAfterClear.GetModeOverride() != nil {
+				t.Errorf("expected nil ModeOverride after ClearModeOverride, got %v", respAfterClear.GetModeOverride())
+			}
+
+			if skipErr := rc.SkipRemainingPhases(); skipErr != nil {
+				t.Fatal(skipErr)
+			}
+			if resetErr := rc.ResetPhase(); resetErr != nil {
+				t.Fatal(resetErr)
+			}
+			respAfterReset, err := rc.GetResponse(phase)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if respAfterReset.GetModeOverride() != nil {
+				t.Errorf("expected nil ModeOverride after ResetPhase, got %v", respAfterReset.GetModeOverride())
+			}
+		}
+	})
+
+	t.Run("immediate_response_omits_mode_override", func(t *testing.T) {
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+		rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		if err := rc.OverrideMode(ModeOverride{RequestBodyMode: BodyModeBuffered}); err != nil {
+			t.Fatal(err)
+		}
+		if err := rc.CancelRequest(429, nil, "rate-limited"); err != nil {
+			t.Fatal(err)
+		}
+		resp, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.GetImmediateResponse() == nil {
+			t.Fatal("expected ImmediateResponse")
+		}
+		if resp.GetModeOverride() != nil {
+			t.Errorf("expected nil ModeOverride on ImmediateResponse, got %v", resp.GetModeOverride())
+		}
+	})
 }

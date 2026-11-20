@@ -175,6 +175,24 @@ Four methods help modify bodies depending on your Envoy `processing_mode`:
 ```
 Use `ReplaceBody` / `ClearBody` when Envoy buffers the entire body, and `ReplaceBodyChunk` / `ClearBodyChunk` when streaming chunks. See the [masker](#masker) example discussed below.
 
+### Dynamic Mode Override
+
+When Envoy configures `allow_mode_override: true` on the `ext_proc` filter, `ProcessRequestHeaders` or `ProcessResponseHeaders` can override how Envoy processes subsequent phases of that request:
+```go
+_ = ctx.OverrideMode(extproc.ModeOverride{
+	ResponseHeaderMode:  extproc.HeaderModeDefault,
+	RequestBodyMode:     extproc.BodyModeBuffered,
+	ResponseBodyMode:    extproc.BodyModeBuffered,
+	RequestTrailerMode:  extproc.HeaderModeDefault,
+	ResponseTrailerMode: extproc.HeaderModeDefault,
+})
+```
+Or skip all remaining phases for a fast-path request:
+```go
+return ctx.SkipRemainingPhases()
+```
+Use `ClearModeOverride()` to undo a pending override in the same header phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`BodyModeNone` is `0`), so when calling `OverrideMode` from `ProcessRequestHeaders`, set both `RequestBodyMode` and `ResponseBodyMode` explicitly.
+
 ## Examples
 
 You can run all the examples with

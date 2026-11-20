@@ -1274,3 +1274,86 @@ func TestProcessPhaseHeaderExistenceCarriesIntoBodyPhase(t *testing.T) {
 		}
 	})
 }
+
+func TestProcessPhaseModeOverride(t *testing.T) {
+	t.Run("request_headers_propagates_mode_override_and_headers", func(t *testing.T) {
+		proc := &phaseHookProcessor{
+			name: "mode-override",
+			opts: NewDefaultProcessingOptions(),
+			onReqHdrs: func(ctx *RequestContext) error {
+				if err := ctx.AddHeader("x-checked", HeaderValue{RawValue: []byte("true")}); err != nil {
+					return err
+				}
+				return ctx.OverrideMode(ModeOverride{
+					RequestBodyMode:  BodyModeBuffered,
+					ResponseBodyMode: BodyModeStreamed,
+				})
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+
+		resp, phase, err := s.processPhase(
+			newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")}),
+			proc,
+			rc,
+		)
+		if err != nil {
+			t.Fatalf("processPhase returned error: %v", err)
+		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+		}
+		if phase != REQUEST_PHASE_REQUEST_HEADERS {
+			t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_HEADERS)
+		}
+		setHdrs := resp.GetRequestHeaders().GetResponse().GetHeaderMutation().GetSetHeaders()
+		if len(setHdrs) != 1 || setHdrs[0].GetHeader().GetKey() != "x-checked" {
+			t.Errorf("RequestHeaders SetHeaders = %v, want [x-checked]", setHdrs)
+		}
+		mo := resp.GetModeOverride()
+		if mo == nil {
+			t.Fatal("expected ProcessingResponse.ModeOverride to be set")
+		}
+		if mo.GetRequestBodyMode().String() != "BUFFERED" || mo.GetResponseBodyMode().String() != "STREAMED" {
+			t.Errorf("ModeOverride = %+v, want RequestBodyMode=BUFFERED ResponseBodyMode=STREAMED", mo)
+		}
+	})
+
+	t.Run("rejected_in_body_phase", func(t *testing.T) {
+		proc := &phaseHookProcessor{
+			name: "mode-override-invalid-phase",
+			opts: &ProcessingOptions{AbortOnProcessorFailure: false},
+			onReqBody: func(ctx *RequestContext) error {
+				return ctx.OverrideMode(ModeOverride{ResponseBodyMode: BodyModeBuffered})
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		stream := newProcessStreamFake(
+			context.Background(),
+			newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")}),
+			newBodyRequest("request", []byte("payload"), true),
+		)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error %v, want nil when AbortOnProcessorFailure is false", err)
+		}
+		if len(stream.sent) != 2 {
+			t.Fatalf("stream.sent = %d responses, want 2", len(stream.sent))
+		}
+		if stream.sent[1].GetModeOverride() != nil {
+			t.Errorf("RequestBody response unexpectedly set ModeOverride: %v", stream.sent[1].GetModeOverride())
+		}
+
+		families := gatherRegisteredMetrics(t, s.metrics)
+		if got := counterValue(t, families, "extproc_phase_errors_total"); got != 1 {
+			t.Errorf("extproc_phase_errors_total = %v, want 1", got)
+		}
+		if got := counterValue(t, families, "extproc_errored_streams"); got != 1 {
+			t.Errorf("extproc_errored_streams = %v, want 1", got)
+		}
+	})
+}
