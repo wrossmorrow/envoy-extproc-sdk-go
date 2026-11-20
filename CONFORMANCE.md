@@ -20,7 +20,7 @@ Verification in this repository is intentionally split into two tiers:
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]
-> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete, and `ObservabilityMode`, `HeaderAppendAction` (`envoyproxy/envoy#48886`), `mode_override`, and `protocol_config` are supported and verified across `v1.37`–`v1.40`. Remaining Phase 4 items cover additional v3 spec extensions (dynamic metadata/attributes, `override_message_timeout`, and full-duplex streaming).
+> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete, and `ObservabilityMode`, `HeaderAppendAction` (`envoyproxy/envoy#48886`), `mode_override`, `protocol_config`, and dynamic metadata & CEL attributes are supported and verified across `v1.37`–`v1.40`. Remaining Phase 4 items cover `override_message_timeout` and full-duplex streaming.
 
 ---
 
@@ -50,7 +50,7 @@ Verification in this repository is intentionally split into two tiers:
 | Spec Extensions | Observability mode (observability_mode: true) | Supported | `RequestContext.ObservabilityMode, GenericExtProcServer.Process` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Callbacks run with ctx.ObservabilityMode=true while suppressing ProcessingResponse (spurious_msgs_received == 0) |
 | Spec Extensions | Protocol configuration (protocol_config) | Supported | `ProtocolConfig, RequestContext.ProtocolConfig, RequestContext.DefaultModeOverride` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Stream-scoped capture across NONE/BUFFERED/STREAMED/BUFFERED_PARTIAL, request_header_mode=SKIP, send_body_without_waiting_for_header_response, and DefaultModeOverride |
 | Spec Extensions | Dynamic mode override (mode_override) | Supported | `ModeOverride, OverrideMode, ClearModeOverride, SkipRemainingPhases` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Dynamic body/trailer opt-in, SkipRemainingPhases, ResponseHeaders override, allow_mode_override=false, and allowed_override_modes |
-| Spec Extensions | Dynamic metadata & CEL attributes | Not Yet Supported | `metadata_context, dynamic_metadata, attributes` | — | — | — | — | Not yet exposed |
+| Spec Extensions | Dynamic metadata & CEL attributes | Supported | `Metadata, TypedMetadata, Attributes, SetDynamicMetadata, SetDynamicMetadataNamespace, ClearDynamicMetadata` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Inbound untyped/typed metadata_context, outbound dynamic_metadata (receiving_namespaces allowlist & ImmediateResponse), and CEL request/response attributes |
 | Spec Extensions | Per-message timeout override | Not Yet Supported | `override_message_timeout` | — | — | — | — | Not yet exposed |
 | Spec Extensions | CONTINUE_AND_REPLACE & full-duplex streaming | Not Yet Supported | `CONTINUE_AND_REPLACE, FULL_DUPLEX_STREAMED, GRPC` | — | — | — | — | Requires non-1:1 streaming model beyond RequestProcessor |
 

@@ -16,6 +16,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func newTestServer(t *testing.T, processor RequestProcessor, options *ProcessingOptions) *GenericExtProcServer {
@@ -1496,6 +1499,111 @@ func TestProcessStreamProtocolConfig(t *testing.T) {
 			if pc != nil {
 				t.Errorf("phase %d ProtocolConfig = %+v, want nil", i, pc)
 			}
+		}
+	})
+}
+
+func TestProcessStreamMetadataAndAttributes(t *testing.T) {
+	t.Run("inbound_metadata_and_attributes_persist_and_merge_across_phases", func(t *testing.T) {
+		var respBodyMeta map[string]map[string]any
+		var respBodyTyped *anypb.Any
+		var respBodyAttrs map[string]any
+
+		proc := &phaseHookProcessor{
+			name: "metadata-attrs",
+			opts: NewDefaultProcessingOptions(),
+			onReqBody: func(ctx *RequestContext) error {
+				return ctx.SetDynamicMetadata("com.example.out", "checked", true)
+			},
+			onRespBody: func(ctx *RequestContext) error {
+				respBodyMeta = make(map[string]map[string]any, len(ctx.Metadata))
+				for k, v := range ctx.Metadata {
+					copied := make(map[string]any, len(v))
+					for mk, mv := range v {
+						copied[mk] = mv
+					}
+					respBodyMeta[k] = copied
+				}
+				respBodyTyped = ctx.TypedMetadata["com.example.typed"]
+				respBodyAttrs = make(map[string]any, len(ctx.Attributes))
+				for k, v := range ctx.Attributes {
+					respBodyAttrs[k] = v
+				}
+				return ctx.ContinueRequest()
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+
+		reqMetaStruct, err := structpb.NewStruct(map[string]any{"sub": "alice"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		typedAny, err := anypb.New(wrapperspb.String("typed-claim"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reqAttrStruct, err := structpb.NewStruct(map[string]any{"request.protocol": "HTTP/2"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		respMetaStruct, err := structpb.NewStruct(map[string]any{"region": "us-west"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		respAttrStruct, err := structpb.NewStruct(map[string]any{"response.code": 200})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		reqHdrs := newHeadersRequest("request", false, &corev3.HeaderValue{Key: ":method", RawValue: []byte("POST")})
+		reqHdrs.MetadataContext = &corev3.Metadata{
+			FilterMetadata:      map[string]*structpb.Struct{"com.example.auth": reqMetaStruct},
+			TypedFilterMetadata: map[string]*anypb.Any{"com.example.typed": typedAny},
+		}
+		reqHdrs.Attributes = map[string]*structpb.Struct{
+			"envoy.filters.http.ext_proc": reqAttrStruct,
+		}
+
+		respHdrs := newHeadersRequest("response", false, &corev3.HeaderValue{Key: ":status", RawValue: []byte("200")})
+		respHdrs.MetadataContext = &corev3.Metadata{
+			FilterMetadata: map[string]*structpb.Struct{"com.example.upstream": respMetaStruct},
+		}
+		respHdrs.Attributes = map[string]*structpb.Struct{
+			"envoy.filters.http.ext_proc": respAttrStruct,
+		}
+
+		stream := newProcessStreamFake(
+			context.Background(),
+			reqHdrs,
+			newBodyRequest("request", []byte("req-body"), true),
+			respHdrs,
+			newBodyRequest("response", []byte("resp-body"), true),
+		)
+
+		if perr := s.Process(stream); perr != nil {
+			t.Fatalf("Process returned error: %v", perr)
+		}
+		if len(stream.sent) != 4 {
+			t.Fatalf("stream.sent = %d responses, want 4", len(stream.sent))
+		}
+
+		if respBodyMeta["com.example.auth"]["sub"] != "alice" || respBodyMeta["com.example.upstream"]["region"] != "us-west" {
+			t.Errorf("ResponseBody Metadata = %+v", respBodyMeta)
+		}
+		var unpacked wrapperspb.StringValue
+		if respBodyTyped == nil || respBodyTyped.UnmarshalTo(&unpacked) != nil || unpacked.GetValue() != "typed-claim" {
+			t.Errorf("ResponseBody TypedMetadata = %v, want typed-claim", unpacked.GetValue())
+		}
+		if respBodyAttrs["request.protocol"] != "HTTP/2" || respBodyAttrs["response.code"] != float64(200) {
+			t.Errorf("ResponseBody Attributes = %+v", respBodyAttrs)
+		}
+
+		sentBodyMeta := stream.sent[1].GetDynamicMetadata().GetFields()["com.example.out"].GetStructValue().AsMap()
+		if sentBodyMeta["checked"] != true {
+			t.Errorf("RequestBody response DynamicMetadata = %+v, want checked=true", sentBodyMeta)
+		}
+		if stream.sent[2].GetDynamicMetadata() != nil {
+			t.Errorf("ResponseHeaders response unexpectedly carried DynamicMetadata from previous phase: %v", stream.sent[2].GetDynamicMetadata())
 		}
 	})
 }

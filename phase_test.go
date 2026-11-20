@@ -6,6 +6,9 @@ import (
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestDefaultPhaseIfInvalid(t *testing.T) {
@@ -939,6 +942,185 @@ func TestProtocolConfigAndDefaultModeOverride(t *testing.T) {
 		}
 		if rc.ProtocolConfig != expected {
 			t.Fatalf("initReqCtx cleared ProtocolConfig: got %+v, want %+v", rc.ProtocolConfig, expected)
+		}
+	})
+}
+
+func TestDynamicMetadataAndAttributes(t *testing.T) {
+	t.Run("validation_all_or_nothing_and_merging", func(t *testing.T) {
+		rc := newRequestContext()
+		if err := rc.SetDynamicMetadata("", "k", "v"); err == nil {
+			t.Fatal("expected error for empty namespace")
+		}
+		if err := rc.SetDynamicMetadata("com.example.ns", "", "v"); err == nil {
+			t.Fatal("expected error for empty key")
+		}
+		if err := rc.SetDynamicMetadata("com.example.ns", "bad", struct{ X int }{1}); err == nil {
+			t.Fatal("expected error for unsupported struct value")
+		}
+		if err := rc.SetDynamicMetadata("com.example.ns", "bad_utf8", string([]byte{0xff})); err == nil {
+			t.Fatal("expected error for invalid UTF-8 string value")
+		}
+		if rc.response.dynamicMetadata != nil {
+			t.Fatalf("failed calls mutated dynamicMetadata: %v", rc.response.dynamicMetadata)
+		}
+
+		if err := rc.SetDynamicMetadata("com.example.ns", "initial", "ok"); err != nil {
+			t.Fatalf("SetDynamicMetadata failed: %v", err)
+		}
+		if err := rc.SetDynamicMetadataNamespace("com.example.ns", map[string]any{
+			"":     "bad-key",
+			"drop": "should-not-apply",
+		}); err == nil {
+			t.Fatal("expected error for empty key in SetDynamicMetadataNamespace")
+		}
+		fields := rc.response.dynamicMetadata.GetFields()["com.example.ns"].GetStructValue().GetFields()
+		if _, exists := fields["drop"]; exists {
+			t.Fatal("SetDynamicMetadataNamespace applied partial changes on error")
+		}
+
+		if err := rc.SetDynamicMetadataNamespace("com.example.ns", map[string]any{
+			"count": 42,
+			"tags":  []any{"a", "b"},
+			"nested": map[string]any{
+				"enabled": true,
+			},
+		}); err != nil {
+			t.Fatalf("SetDynamicMetadataNamespace failed: %v", err)
+		}
+		if err := rc.SetDynamicMetadata("com.example.other", "flag", true); err != nil {
+			t.Fatalf("second namespace SetDynamicMetadata failed: %v", err)
+		}
+
+		nsOne := rc.response.dynamicMetadata.GetFields()["com.example.ns"].GetStructValue().AsMap()
+		if nsOne["initial"] != "ok" || nsOne["count"] != float64(42) {
+			t.Errorf("unexpected com.example.ns contents: %+v", nsOne)
+		}
+		nsTwo := rc.response.dynamicMetadata.GetFields()["com.example.other"].GetStructValue().AsMap()
+		if nsTwo["flag"] != true {
+			t.Errorf("unexpected com.example.other contents: %+v", nsTwo)
+		}
+	})
+
+	t.Run("attached_to_all_phases_and_immediate_response_and_reset_clears_outbound", func(t *testing.T) {
+		phases := []int{
+			REQUEST_PHASE_REQUEST_HEADERS,
+			REQUEST_PHASE_REQUEST_BODY,
+			REQUEST_PHASE_REQUEST_TRAILERS,
+			REQUEST_PHASE_RESPONSE_HEADERS,
+			REQUEST_PHASE_RESPONSE_BODY,
+			REQUEST_PHASE_RESPONSE_TRAILERS,
+		}
+		for _, phase := range phases {
+			rc := newRequestContext()
+			if err := rc.ResetPhase(); err != nil {
+				t.Fatal(err)
+			}
+			rc.setPhase(phase)
+			if err := rc.SetDynamicMetadata("com.example.phase", "name", RequestPhaseToString(phase)); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := rc.GetResponse(phase)
+			if err != nil {
+				t.Fatalf("GetResponse(%s) failed: %v", RequestPhaseToString(phase), err)
+			}
+			if verr := resp.ValidateAll(); verr != nil {
+				t.Errorf("GetResponse(%s) ValidateAll() = %v", RequestPhaseToString(phase), verr)
+			}
+			got := resp.GetDynamicMetadata().GetFields()["com.example.phase"].GetStructValue().AsMap()
+			if got["name"] != RequestPhaseToString(phase) {
+				t.Errorf("phase %s dynamic_metadata = %+v", RequestPhaseToString(phase), got)
+			}
+
+			rc.ClearDynamicMetadata()
+			respCleared, clearErr := rc.GetResponse(phase)
+			if clearErr != nil {
+				t.Fatal(clearErr)
+			}
+			if respCleared.GetDynamicMetadata() != nil {
+				t.Errorf("expected nil DynamicMetadata after ClearDynamicMetadata on %s", RequestPhaseToString(phase))
+			}
+		}
+
+		rc := newRequestContext()
+		if err := rc.ResetPhase(); err != nil {
+			t.Fatal(err)
+		}
+		rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		if err := rc.SetDynamicMetadata("com.example.auth", "denied", true); err != nil {
+			t.Fatal(err)
+		}
+		if err := rc.CancelRequest(403, nil, "forbidden"); err != nil {
+			t.Fatal(err)
+		}
+		immResp, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if verr := immResp.ValidateAll(); verr != nil {
+			t.Errorf("ImmediateResponse ValidateAll() = %v", verr)
+		}
+		if got := immResp.GetDynamicMetadata().GetFields()["com.example.auth"].GetStructValue().AsMap(); got["denied"] != true {
+			t.Errorf("ImmediateResponse dynamic_metadata = %+v, want denied=true", got)
+		}
+		if resetErr := rc.ResetPhase(); resetErr != nil {
+			t.Fatal(resetErr)
+		}
+		if rc.response.dynamicMetadata != nil {
+			t.Errorf("ResetPhase failed to clear outbound dynamicMetadata")
+		}
+	})
+
+	t.Run("inbound_merge_and_persistence_across_reset_and_init", func(t *testing.T) {
+		rc := newRequestContext()
+		st1, err := structpb.NewStruct(map[string]any{"sub": "alice", "role": "reader"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		typedAny, err := anypb.New(wrapperspb.String("typed-v1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc.mergeMetadataContext(&corev3.Metadata{
+			FilterMetadata:      map[string]*structpb.Struct{"com.example.auth": st1},
+			TypedFilterMetadata: map[string]*anypb.Any{"com.example.typed": typedAny},
+		})
+
+		attr1, err := structpb.NewStruct(map[string]any{"request.protocol": "HTTP/2", "xds.route_name": "r1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc.mergeAttributes(map[string]*structpb.Struct{"envoy.filters.http.ext_proc": attr1})
+
+		if resetErr := rc.ResetPhase(); resetErr != nil {
+			t.Fatal(resetErr)
+		}
+		if initErr := initReqCtx(rc, &corev3.HeaderMap{}); initErr != nil {
+			t.Fatal(initErr)
+		}
+
+		st2, err := structpb.NewStruct(map[string]any{"role": "admin"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc.mergeMetadataContext(&corev3.Metadata{
+			FilterMetadata: map[string]*structpb.Struct{"com.example.auth": st2},
+		})
+		attr2, err := structpb.NewStruct(map[string]any{"response.code": 200})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc.mergeAttributes(map[string]*structpb.Struct{"envoy.filters.http.ext_proc": attr2})
+
+		if rc.Metadata["com.example.auth"]["sub"] != "alice" || rc.Metadata["com.example.auth"]["role"] != "admin" {
+			t.Errorf("merged Metadata = %+v", rc.Metadata)
+		}
+		var unpacked wrapperspb.StringValue
+		if uerr := rc.TypedMetadata["com.example.typed"].UnmarshalTo(&unpacked); uerr != nil || unpacked.GetValue() != "typed-v1" {
+			t.Errorf("TypedMetadata unpack = (%q, %v), want typed-v1", unpacked.GetValue(), uerr)
+		}
+		if rc.Attributes["request.protocol"] != "HTTP/2" || rc.Attributes["xds.route_name"] != "r1" || rc.Attributes["response.code"] != float64(200) {
+			t.Errorf("merged Attributes = %+v", rc.Attributes)
 		}
 	})
 }

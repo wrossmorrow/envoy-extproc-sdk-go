@@ -13,6 +13,9 @@ import (
 	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -136,6 +139,7 @@ type PhaseResponse struct {
 	bodyMutation      *extprocv3.BodyMutation      // body responses
 	continueRequest   *extprocv3.CommonResponse    // headers/body responses
 	immediateResponse *extprocv3.ImmediateResponse // headers/body responses
+	dynamicMetadata   *structpb.Struct             // any response (including ImmediateResponse)
 	modeOverride      *extproccfgv3.ProcessingMode // header responses only
 	clearRouteCache   bool
 }
@@ -212,6 +216,9 @@ type RequestContext struct {
 	EndOfStream       bool
 	ObservabilityMode bool
 	ProtocolConfig    *ProtocolConfig
+	Metadata          map[string]map[string]any
+	TypedMetadata     map[string]*anypb.Any
+	Attributes        map[string]any
 	data              map[string]any
 
 	phase           int
@@ -286,8 +293,62 @@ func (rc *RequestContext) resolvedHeaderMutation() (*extprocv3.HeaderMutation, m
 // request headers phase, which request_header_mode: SKIP never reaches.
 func newRequestContext() *RequestContext {
 	return &RequestContext{
+		Metadata:      make(map[string]map[string]any),
+		TypedMetadata: make(map[string]*anypb.Any),
+		Attributes:    make(map[string]any),
 		// for custom data between phases
 		data: make(map[string]any),
+	}
+}
+
+func (rc *RequestContext) mergeMetadataContext(md *corev3.Metadata) {
+	if rc == nil || md == nil {
+		return
+	}
+	if len(md.GetFilterMetadata()) > 0 {
+		if rc.Metadata == nil {
+			rc.Metadata = make(map[string]map[string]any, len(md.GetFilterMetadata()))
+		}
+		for ns, st := range md.GetFilterMetadata() {
+			if st == nil {
+				continue
+			}
+			nsMap := rc.Metadata[ns]
+			if nsMap == nil {
+				nsMap = make(map[string]any, len(st.GetFields()))
+				rc.Metadata[ns] = nsMap
+			}
+			maps.Copy(nsMap, st.AsMap())
+		}
+	}
+	if len(md.GetTypedFilterMetadata()) > 0 {
+		if rc.TypedMetadata == nil {
+			rc.TypedMetadata = make(map[string]*anypb.Any, len(md.GetTypedFilterMetadata()))
+		}
+		for ns, anyVal := range md.GetTypedFilterMetadata() {
+			if anyVal == nil {
+				continue
+			}
+			if cloned, ok := proto.Clone(anyVal).(*anypb.Any); ok {
+				rc.TypedMetadata[ns] = cloned
+			}
+		}
+	}
+}
+
+func (rc *RequestContext) mergeAttributes(attrs map[string]*structpb.Struct) {
+	if rc == nil || len(attrs) == 0 {
+		return
+	}
+	if rc.Attributes == nil {
+		rc.Attributes = make(map[string]any)
+	}
+	for _, ns := range slices.Sorted(maps.Keys(attrs)) {
+		st := attrs[ns]
+		if st == nil {
+			continue
+		}
+		maps.Copy(rc.Attributes, st.AsMap())
 	}
 }
 
@@ -367,6 +428,7 @@ func (rc *RequestContext) ResetPhase() error {
 	rc.response.bodyMutation = nil
 	rc.response.continueRequest = nil
 	rc.response.immediateResponse = nil
+	rc.response.dynamicMetadata = nil
 	rc.response.modeOverride = nil
 	rc.response.clearRouteCache = false
 	return nil
@@ -477,6 +539,76 @@ func (rc *RequestContext) DefaultModeOverride() ModeOverride {
 	}
 }
 
+// SetDynamicMetadata sets key=value under namespace in the current phase's
+// ProcessingResponse.dynamic_metadata. Envoy only accepts namespaces listed in
+// metadata_options.receiving_namespaces.untyped on the ext_proc filter.
+func (rc *RequestContext) SetDynamicMetadata(namespace, key string, value any) error {
+	if namespace == "" {
+		return errors.New("dynamic metadata namespace cannot be empty")
+	}
+	if key == "" {
+		return errors.New("dynamic metadata key cannot be empty")
+	}
+	pbVal, err := structpb.NewValue(value)
+	if err != nil {
+		return fmt.Errorf("invalid dynamic metadata value for %s.%s: %w", namespace, key, err)
+	}
+	nsStruct := rc.ensureDynamicMetadataNamespace(namespace)
+	nsStruct.Fields[key] = pbVal
+	return nil
+}
+
+// SetDynamicMetadataNamespace merges values under namespace in the current
+// phase's ProcessingResponse.dynamic_metadata. Validation is all-or-nothing:
+// if namespace or any key is empty, or any value cannot be converted via
+// structpb.NewValue, no changes are applied.
+func (rc *RequestContext) SetDynamicMetadataNamespace(namespace string, values map[string]any) error {
+	if namespace == "" {
+		return errors.New("dynamic metadata namespace cannot be empty")
+	}
+	converted := make(map[string]*structpb.Value, len(values))
+	for k, v := range values {
+		if k == "" {
+			return errors.New("dynamic metadata key cannot be empty")
+		}
+		pbVal, err := structpb.NewValue(v)
+		if err != nil {
+			return fmt.Errorf("invalid dynamic metadata value for %s.%s: %w", namespace, k, err)
+		}
+		converted[k] = pbVal
+	}
+	nsStruct := rc.ensureDynamicMetadataNamespace(namespace)
+	maps.Copy(nsStruct.Fields, converted)
+	return nil
+}
+
+// ClearDynamicMetadata removes all pending outbound dynamic metadata for the current phase.
+func (rc *RequestContext) ClearDynamicMetadata() {
+	rc.response.dynamicMetadata = nil
+}
+
+func (rc *RequestContext) ensureDynamicMetadataNamespace(namespace string) *structpb.Struct {
+	if rc.response.dynamicMetadata == nil {
+		rc.response.dynamicMetadata = &structpb.Struct{
+			Fields: make(map[string]*structpb.Value),
+		}
+	} else if rc.response.dynamicMetadata.Fields == nil {
+		rc.response.dynamicMetadata.Fields = make(map[string]*structpb.Value)
+	}
+	if existingVal, ok := rc.response.dynamicMetadata.Fields[namespace]; ok && existingVal.GetStructValue() != nil {
+		existing := existingVal.GetStructValue()
+		if existing.Fields == nil {
+			existing.Fields = make(map[string]*structpb.Value)
+		}
+		return existing
+	}
+	nsStruct := &structpb.Struct{
+		Fields: make(map[string]*structpb.Value),
+	}
+	rc.response.dynamicMetadata.Fields[namespace] = structpb.NewStructValue(nsStruct)
+	return nsStruct
+}
+
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {
 
 	// handle immediate responses
@@ -488,6 +620,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 				Response: &extprocv3.ProcessingResponse_ImmediateResponse{
 					ImmediateResponse: rc.response.immediateResponse,
 				},
+				DynamicMetadata: rc.response.dynamicMetadata,
 			}, nil
 
 		// trailers phases don't have an ImmediateResponse option
@@ -514,7 +647,8 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					Response: rc.response.continueRequest,
 				},
 			},
-			ModeOverride: rc.response.modeOverride,
+			DynamicMetadata: rc.response.dynamicMetadata,
+			ModeOverride:    rc.response.modeOverride,
 		}, nil
 
 	case REQUEST_PHASE_REQUEST_BODY:
@@ -524,6 +658,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					Response: rc.response.continueRequest,
 				},
 			},
+			DynamicMetadata: rc.response.dynamicMetadata,
 		}, nil
 
 	case REQUEST_PHASE_REQUEST_TRAILERS:
@@ -534,6 +669,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					HeaderMutation: hm,
 				},
 			},
+			DynamicMetadata: rc.response.dynamicMetadata,
 		}, nil
 
 	case REQUEST_PHASE_RESPONSE_HEADERS:
@@ -543,7 +679,8 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					Response: rc.response.continueRequest,
 				},
 			},
-			ModeOverride: rc.response.modeOverride,
+			DynamicMetadata: rc.response.dynamicMetadata,
+			ModeOverride:    rc.response.modeOverride,
 		}, nil
 
 	case REQUEST_PHASE_RESPONSE_BODY:
@@ -553,6 +690,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					Response: rc.response.continueRequest,
 				},
 			},
+			DynamicMetadata: rc.response.dynamicMetadata,
 		}, nil
 
 	case REQUEST_PHASE_RESPONSE_TRAILERS:
@@ -563,6 +701,7 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 					HeaderMutation: hm,
 				},
 			},
+			DynamicMetadata: rc.response.dynamicMetadata,
 		}, nil
 
 	default:

@@ -1723,4 +1723,187 @@ func runPhase2Scenarios(t *testing.T, env conformanceEnv) {
 			env.runner.AssertNoProtocolErrors(t)
 		})
 	})
+
+	t.Run("dynamic_metadata_and_attributes", func(t *testing.T) {
+		t.Run("emit_allowlisted_and_forward_across_chained_filters", func(t *testing.T) {
+			caseID := "meta-chain-allowlist"
+			var reqHdrsChecked, reqBodyChecked, respHdrsChecked atomic.Bool
+
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					if err := ctx.SetDynamicMetadataNamespace("com.conformance.extproc", map[string]any{
+						"tenant": "acme",
+						"score":  42,
+					}); err != nil {
+						return err
+					}
+					return ctx.SetDynamicMetadata("com.conformance.unallowed", "secret", "dropped")
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					return ctx.SetDynamicMetadata("com.conformance.extproc", "body_checked", true)
+				},
+			})
+			env.secondExtprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					reqHdrsChecked.Store(true)
+					allowed := ctx.Metadata["com.conformance.extproc"]
+					if allowed["tenant"] != "acme" || allowed["score"] != float64(42) {
+						t.Errorf("second filter RequestHeaders com.conformance.extproc = %+v, want tenant=acme score=42", allowed)
+					}
+					if _, exists := ctx.Metadata["com.conformance.unallowed"]; exists {
+						t.Errorf("second filter RequestHeaders unexpectedly received unallowlisted namespace: %+v", ctx.Metadata["com.conformance.unallowed"])
+					}
+					return ctx.ContinueRequest()
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					reqBodyChecked.Store(true)
+					allowed := ctx.Metadata["com.conformance.extproc"]
+					if allowed["body_checked"] != true || allowed["tenant"] != "acme" {
+						t.Errorf("second filter RequestBody com.conformance.extproc = %+v, want body_checked=true tenant=acme", allowed)
+					}
+					return ctx.ContinueRequest()
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					respHdrsChecked.Store(true)
+					if ctx.Metadata["com.conformance.extproc"]["body_checked"] != true {
+						t.Errorf("second filter ResponseHeaders Metadata = %+v, want body_checked=true", ctx.Metadata)
+					}
+					return ctx.AddHeader("x-meta-verified", extproc.HeaderValue{RawValue: []byte("ok")})
+				},
+			})
+			t.Cleanup(func() {
+				env.extprocSrv.Processor.Unregister(caseID)
+				env.secondExtprocSrv.Processor.Unregister(caseID)
+			})
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/metadata-chain/check", strings.NewReader("meta-body"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			if !reqHdrsChecked.Load() || !reqBodyChecked.Load() || !respHdrsChecked.Load() {
+				t.Errorf("second filter callbacks called: reqHdrs=%v reqBody=%v respHdrs=%v, want all true",
+					reqHdrsChecked.Load(), reqBodyChecked.Load(), respHdrsChecked.Load())
+			}
+			if got := resp.Header.Get("x-meta-verified"); got != "ok" {
+				t.Errorf("response header x-meta-verified = %q, want ok", got)
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+
+		t.Run("immediate_response_emits_dynamic_metadata", func(t *testing.T) {
+			caseID := "meta-immediate-deny"
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					if err := ctx.SetDynamicMetadata("com.conformance.extproc", "denied_by", "policy"); err != nil {
+						return err
+					}
+					return ctx.CancelRequest(403, map[string]extproc.HeaderValue{
+						"x-denied": {RawValue: []byte("1")},
+					}, "denied")
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/profile/metadata-chain/deny", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403 (body=%q)", resp.StatusCode, string(body))
+			}
+			if got := resp.Header.Get("x-denied"); got != "1" {
+				t.Errorf("x-denied = %q, want 1", got)
+			}
+			if string(body) != "denied" {
+				t.Errorf("body = %q, want denied", string(body))
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+
+		t.Run("cel_request_and_response_attributes_persist_across_phases", func(t *testing.T) {
+			caseID := "cel-attrs-persist"
+			var mu sync.Mutex
+			snapshots := map[string]map[string]any{}
+			snapshot := func(phaseName string, ctx *extproc.RequestContext) {
+				copied := make(map[string]any, len(ctx.Attributes))
+				for k, v := range ctx.Attributes {
+					copied[k] = v
+				}
+				mu.Lock()
+				snapshots[phaseName] = copied
+				mu.Unlock()
+			}
+
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					snapshot("req_headers", ctx)
+					return ctx.ContinueRequest()
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					snapshot("req_body", ctx)
+					return ctx.ContinueRequest()
+				},
+				ResponseHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					snapshot("resp_headers", ctx)
+					return ctx.ContinueRequest()
+				},
+				ResponseBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					snapshot("resp_body", ctx)
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/attributes/items?filter=active", strings.NewReader("attr-probe"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+			req.Header.Set("x-upstream-status", "201")
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want 201 (body=%q)", resp.StatusCode, string(body))
+			}
+
+			wantReqAttrs := map[string]any{
+				"request.path":     "/profile/attributes/items?filter=active",
+				"request.url_path": "/profile/attributes/items",
+				"request.method":   "POST",
+				"request.protocol": "HTTP/1.1",
+				"xds.route_name":   "conformance_attributes_route",
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			for _, p := range []string{"req_headers", "req_body", "resp_headers", "resp_body"} {
+				attrs, ok := snapshots[p]
+				if !ok {
+					t.Errorf("phase %s did not capture attributes", p)
+					continue
+				}
+				for k, wantVal := range wantReqAttrs {
+					if attrs[k] != wantVal {
+						t.Errorf("phase %s attr %q = %v (%T), want %v (%T)", p, k, attrs[k], attrs[k], wantVal, wantVal)
+					}
+				}
+			}
+			for _, p := range []string{"resp_headers", "resp_body"} {
+				attrs := snapshots[p]
+				if attrs["response.code"] != float64(201) {
+					t.Errorf("phase %s attr response.code = %v (%T), want float64(201)", p, attrs["response.code"], attrs["response.code"])
+				}
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+	})
 }
