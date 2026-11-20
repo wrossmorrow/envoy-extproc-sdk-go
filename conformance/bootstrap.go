@@ -32,6 +32,8 @@ const (
 	extProcChainFirstFilterName       = "extproc_chain_first"
 	extProcChainSecondFilterName      = "extproc_chain_second"
 	extProcObservabilityFilterName    = "extproc_observability"
+	extProcModeOverrideFilterName     = "extproc_mode_override"
+	extProcModeOverrideAllowlistName  = "extproc_mode_override_allowlist"
 	extProcClusterDefault             = "extproc_service"
 	extProcClusterAbort               = "extproc_abort_service"
 	extProcClusterSecondary           = "extproc_secondary_service"
@@ -125,7 +127,18 @@ func streamedProcessingMode() *extproccfgv3.ProcessingMode {
 	}
 }
 
-func makeExtProcFilter(name, clusterName string, failureModeAllow bool, messageTimeout time.Duration, observability, disabledByDefault bool, mode *extproccfgv3.ProcessingMode) (*hcmv3.HttpFilter, error) {
+func noneProcessingMode() *extproccfgv3.ProcessingMode {
+	return &extproccfgv3.ProcessingMode{
+		RequestHeaderMode:   extproccfgv3.ProcessingMode_SEND,
+		ResponseHeaderMode:  extproccfgv3.ProcessingMode_SEND,
+		RequestBodyMode:     extproccfgv3.ProcessingMode_NONE,
+		ResponseBodyMode:    extproccfgv3.ProcessingMode_NONE,
+		RequestTrailerMode:  extproccfgv3.ProcessingMode_SKIP,
+		ResponseTrailerMode: extproccfgv3.ProcessingMode_SKIP,
+	}
+}
+
+func buildExtProcFilter(name, clusterName string, failureModeAllow bool, messageTimeout time.Duration, observability, disabledByDefault, allowModeOverride bool, allowedModes []*extproccfgv3.ProcessingMode, mode *extproccfgv3.ProcessingMode) (*hcmv3.HttpFilter, error) {
 	cfgAny, err := mustAny(&extproccfgv3.ExternalProcessor{
 		GrpcService: &corev3.GrpcService{
 			TargetSpecifier: &corev3.GrpcService_EnvoyGrpc_{
@@ -135,9 +148,11 @@ func makeExtProcFilter(name, clusterName string, failureModeAllow bool, messageT
 			},
 			Timeout: durationpb.New(30 * time.Second),
 		},
-		FailureModeAllow:  failureModeAllow,
-		ObservabilityMode: observability,
-		MessageTimeout:    durationpb.New(messageTimeout),
+		FailureModeAllow:     failureModeAllow,
+		ObservabilityMode:    observability,
+		AllowModeOverride:    allowModeOverride,
+		AllowedOverrideModes: allowedModes,
+		MessageTimeout:       durationpb.New(messageTimeout),
 		MutationRules: &mutationrulesv3.HeaderMutationRules{
 			AllowAllRouting: wrapperspb.Bool(true),
 		},
@@ -151,6 +166,14 @@ func makeExtProcFilter(name, clusterName string, failureModeAllow bool, messageT
 		Disabled:   disabledByDefault,
 		ConfigType: &hcmv3.HttpFilter_TypedConfig{TypedConfig: cfgAny},
 	}, nil
+}
+
+func makeExtProcFilter(name, clusterName string, failureModeAllow bool, messageTimeout time.Duration, observability, disabledByDefault bool, mode *extproccfgv3.ProcessingMode) (*hcmv3.HttpFilter, error) {
+	return buildExtProcFilter(name, clusterName, failureModeAllow, messageTimeout, observability, disabledByDefault, false, nil, mode)
+}
+
+func makeExtProcFilterWithModeOverride(name, clusterName string, allowModeOverride bool, allowedModes []*extproccfgv3.ProcessingMode, mode *extproccfgv3.ProcessingMode) (*hcmv3.HttpFilter, error) {
+	return buildExtProcFilter(name, clusterName, false, 5*time.Second, false, true, allowModeOverride, allowedModes, mode)
 }
 
 func makeOverridesAny(mode *extproccfgv3.ProcessingMode, failureModeAllow *bool) (*anypb.Any, error) {
@@ -316,14 +339,7 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 		return nil, nil, err
 	}
 
-	noneRoute, err := makeModeRoute("/mode/none", &extproccfgv3.ProcessingMode{
-		RequestHeaderMode:   extproccfgv3.ProcessingMode_SEND,
-		ResponseHeaderMode:  extproccfgv3.ProcessingMode_SEND,
-		RequestBodyMode:     extproccfgv3.ProcessingMode_NONE,
-		ResponseBodyMode:    extproccfgv3.ProcessingMode_NONE,
-		RequestTrailerMode:  extproccfgv3.ProcessingMode_SKIP,
-		ResponseTrailerMode: extproccfgv3.ProcessingMode_SKIP,
-	})
+	noneRoute, err := makeModeRoute("/mode/none", noneProcessingMode())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -365,6 +381,14 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	modeOverrideRoute, err := makeProfileRouteWithMode("/profile/mode-override", disabledPerRouteAny, noneProcessingMode(), nil, extProcModeOverrideFilterName)
+	if err != nil {
+		return nil, nil, err
+	}
+	modeOverrideAllowlistRoute, err := makeProfileRouteWithMode("/profile/mode-override-allowlist", disabledPerRouteAny, noneProcessingMode(), nil, extProcModeOverrideAllowlistName)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	defaultFilter, err := makeExtProcFilter(extProcFilterName, extProcClusterDefault, false, 5*time.Second, false, false, bufferedProcessingMode())
 	if err != nil {
@@ -391,6 +415,26 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 		return nil, nil, err
 	}
 	observabilityFilter, err := makeExtProcFilter(extProcObservabilityFilterName, extProcClusterDefault, true, 5*time.Second, true, true, streamedProcessingMode())
+	if err != nil {
+		return nil, nil, err
+	}
+	modeOverrideFilter, err := makeExtProcFilterWithModeOverride(extProcModeOverrideFilterName, extProcClusterDefault, true, nil, noneProcessingMode())
+	if err != nil {
+		return nil, nil, err
+	}
+	modeOverrideAllowlistFilter, err := makeExtProcFilterWithModeOverride(
+		extProcModeOverrideAllowlistName,
+		extProcClusterDefault,
+		true,
+		[]*extproccfgv3.ProcessingMode{{
+			ResponseHeaderMode:  extproccfgv3.ProcessingMode_SEND,
+			RequestBodyMode:     extproccfgv3.ProcessingMode_STREAMED,
+			ResponseBodyMode:    extproccfgv3.ProcessingMode_NONE,
+			RequestTrailerMode:  extproccfgv3.ProcessingMode_SKIP,
+			ResponseTrailerMode: extproccfgv3.ProcessingMode_SKIP,
+		}},
+		noneProcessingMode(),
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -457,6 +501,8 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 						abortOpenRoute,
 						chainedRoute,
 						observabilityRoute,
+						modeOverrideAllowlistRoute,
+						modeOverrideRoute,
 						{
 							Match: &routev3.RouteMatch{
 								PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
@@ -479,6 +525,8 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 			chainFirstFilter,
 			chainSecondFilter,
 			observabilityFilter,
+			modeOverrideAllowlistFilter,
+			modeOverrideFilter,
 			{
 				Name:       "envoy.filters.http.router",
 				ConfigType: &hcmv3.HttpFilter_TypedConfig{TypedConfig: routerAny},

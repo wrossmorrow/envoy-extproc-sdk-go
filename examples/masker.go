@@ -61,12 +61,12 @@ func maskJSONData(jsonPaths []string, body []byte) ([]byte, error) {
 		return body, erru
 	}
 
-	masked, errj := json.Marshal(unfl)
+	maskedBody, errj := json.Marshal(unfl)
 	if errj != nil {
 		return body, errj
 	}
 
-	return masked, nil
+	return maskedBody, nil
 
 }
 
@@ -78,7 +78,41 @@ func (s *maskerRequestProcessor) GetOptions() *ep.ProcessingOptions {
 	return s.opts
 }
 
+func (s *maskerRequestProcessor) wantsResponseHeaders() bool {
+	if len(masked["response"]) > 0 {
+		return true
+	}
+	return s.opts != nil && (s.opts.UpdateExtProcHeader || s.opts.UpdateDurationHeader)
+}
+
 func (s *maskerRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
+	wantReqBody := !ctx.EndOfStream && len(masked["request"]) > 0 && isMaybeJSON(headers)
+	wantRespHeaders := s.wantsResponseHeaders()
+
+	if !wantReqBody && !wantRespHeaders {
+		if err := ctx.SkipRemainingPhases(); err != nil {
+			return err
+		}
+		return ctx.ContinueRequest()
+	}
+
+	respHdrMode := ep.HeaderModeSkip
+	if wantRespHeaders {
+		respHdrMode = ep.HeaderModeSend
+	}
+	reqBodyMode := ep.BodyModeNone
+	if wantReqBody {
+		reqBodyMode = ep.BodyModeBuffered
+	}
+	if err := ctx.OverrideMode(ep.ModeOverride{
+		ResponseHeaderMode:  respHdrMode,
+		RequestBodyMode:     reqBodyMode,
+		ResponseBodyMode:    ep.BodyModeNone,
+		RequestTrailerMode:  ep.HeaderModeSkip,
+		ResponseTrailerMode: ep.HeaderModeSkip,
+	}); err != nil {
+		return err
+	}
 	return ctx.ContinueRequest()
 }
 
@@ -91,11 +125,11 @@ func (s *maskerRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body
 		log.Print("examining request body")
 		if isMaybeJSON(ctx.AllHeaders) {
 			log.Print("request body may be JSON")
-			masked, err := maskJSONData(masked["request"], body)
+			maskedBody, err := maskJSONData(masked["request"], body)
 			if err != nil {
 				log.Printf("Error: %v", err)
-			} else {
-				ctx.ReplaceBody(masked)
+			} else if replaceErr := ctx.ReplaceBody(maskedBody); replaceErr != nil {
+				return replaceErr
 			}
 		}
 	}
@@ -108,6 +142,14 @@ func (s *maskerRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, 
 
 func (s *maskerRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
 	ctx.SetValue("responseHeaders", headers)
+	if !ctx.EndOfStream && len(masked["response"]) > 0 && isMaybeJSON(headers) {
+		if err := ctx.OverrideMode(ep.ModeOverride{
+			ResponseBodyMode:    ep.BodyModeBuffered,
+			ResponseTrailerMode: ep.HeaderModeSkip,
+		}); err != nil {
+			return err
+		}
+	}
 	return ctx.ContinueRequest()
 }
 
@@ -122,11 +164,11 @@ func (s *maskerRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, bod
 		// assertion to map[string][]string would have panicked here
 		headers, ok := rh.(ep.AllHeaders)
 		if ok && isMaybeJSON(headers) {
-			masked, err := maskJSONData(masked["response"], body)
+			maskedBody, err := maskJSONData(masked["response"], body)
 			if err != nil {
 				log.Printf("Error: %v", err)
-			} else {
-				ctx.ReplaceBody(masked)
+			} else if replaceErr := ctx.ReplaceBody(maskedBody); replaceErr != nil {
+				return replaceErr
 			}
 		}
 	}

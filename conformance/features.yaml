@@ -183,10 +183,11 @@ features:
   - id: mode_override
     category: Spec Extensions
     title: Dynamic mode override (mode_override)
-    sdk_status: unsupported
-    sdk_surface: "ProcessingResponse.mode_override"
-    tests: []
-    notes: "Not yet exposed"
+    sdk_status: supported
+    sdk_surface: "ModeOverride, OverrideMode, ClearModeOverride, SkipRemainingPhases"
+    tests:
+      - TestEnvoyConformance/mode_override
+    notes: "Dynamic body/trailer opt-in, SkipRemainingPhases, ResponseHeaders override, allow_mode_override=false, and allowed_override_modes"
 
   - id: dynamic_metadata_and_attributes
     category: Spec Extensions
