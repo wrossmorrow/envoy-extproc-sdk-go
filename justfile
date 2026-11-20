@@ -10,6 +10,13 @@ update:
 tidy:
     go mod tidy
 
+# tidy all Go modules in the repository
+tidy-all:
+    go mod tidy
+    cd examples && go mod tidy
+    cd test && go mod tidy
+    cd conformance && go mod tidy
+
 # format code
 format:
     go fmt ./...
@@ -82,6 +89,24 @@ loadtest-grpc-smoke:
 # extproc server. Usage: just loadtest-grpc-burst [concurrency]
 loadtest-grpc-burst concurrency:
     just loadtest-grpc {{concurrency}} {{concurrency}}
+
+# Run the Envoy conformance suite against the default supported Envoy version
+# (or $ENVOY_VERSION / $ENVOY_BIN if set).
+conformance *flags="-v":
+    cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 go test {{flags}} ./...
+
+# Run the Envoy conformance suite against a specific Envoy image tag (e.g. v1.40-latest).
+conformance-version envoy_version *flags="-v":
+    cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION={{envoy_version}} go test {{flags}} ./...
+
+# Run the Envoy conformance suite sequentially across every supported Envoy version in conformance/envoy-versions.json.
+conformance-matrix *flags="-v":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for v in $(jq -r '.supported[]' conformance/envoy-versions.json); do
+        echo "=== Envoy Conformance: ${v} ==="
+        (cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${v}" go test {{flags}} ./...)
+    done
 
 # run a specific example
 run example="noop":

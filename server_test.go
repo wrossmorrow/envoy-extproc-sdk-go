@@ -39,6 +39,82 @@ func TestServeRejectsNilProcessor(t *testing.T) {
 	}
 }
 
+func TestNewGenericExtProcServer(t *testing.T) {
+	t.Run("nil processor rejected", func(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		srv, err := NewGenericExtProcServer(nil, NewEmptyMetrics(), logger)
+		if err == nil {
+			t.Fatal("expected NewGenericExtProcServer to reject nil processor")
+		}
+		if err.Error() != "processor is nil" {
+			t.Errorf("error = %v, want %q", err, "processor is nil")
+		}
+		if srv != nil {
+			t.Error("expected nil server on error")
+		}
+	})
+
+	t.Run("nil metrics, logger, and options default cleanly", func(t *testing.T) {
+		proc := newRecordingProcessor("defaults", nil)
+		srv, err := NewGenericExtProcServer(proc, nil, nil)
+		if err != nil {
+			t.Fatalf("NewGenericExtProcServer returned error: %v", err)
+		}
+		if srv.metrics == nil {
+			t.Fatal("expected default metrics to be initialized")
+		}
+		if srv.logger == nil {
+			t.Fatal("expected default logger to be initialized")
+		}
+		if srv.options == nil {
+			t.Fatal("expected default processing options to be initialized")
+		}
+		if srv.name != "defaults" {
+			t.Errorf("server name = %q, want %q", srv.name, "defaults")
+		}
+
+		rc := newRequestContext()
+		if rerr := rc.ResetPhase(); rerr != nil {
+			t.Fatal(rerr)
+		}
+		resp, _, perr := srv.processPhase(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_RequestHeaders{
+				RequestHeaders: &extprocv3.HttpHeaders{
+					Headers: &corev3.HeaderMap{Headers: []*corev3.HeaderValue{
+						{Key: ":method", RawValue: []byte("GET")},
+					}},
+				},
+			},
+		}, proc, rc)
+		if perr != nil {
+			t.Fatalf("processPhase returned error: %v", perr)
+		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+		}
+	})
+
+	t.Run("non-nil arguments preserved", func(t *testing.T) {
+		opts := &ProcessingOptions{UpdateDurationHeader: true}
+		proc := newRecordingProcessor("custom", opts)
+		metrics := NewEmptyMetrics()
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		srv, err := NewGenericExtProcServer(proc, metrics, logger)
+		if err != nil {
+			t.Fatalf("NewGenericExtProcServer returned error: %v", err)
+		}
+		if srv.metrics != metrics {
+			t.Error("expected custom metrics instance to be preserved")
+		}
+		if srv.logger != logger {
+			t.Error("expected custom logger instance to be preserved")
+		}
+		if srv.options != opts {
+			t.Error("expected custom options instance to be preserved")
+		}
+	})
+}
+
 type recordingProcessor struct {
 	name string
 	opts *ProcessingOptions
@@ -125,6 +201,9 @@ func TestProcessPhaseRequestHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("processPhase returned error: %v", err)
 	}
+	if verr := resp.ValidateAll(); verr != nil {
+		t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+	}
 	if phase != REQUEST_PHASE_REQUEST_HEADERS {
 		t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_HEADERS)
 	}
@@ -161,6 +240,9 @@ func TestProcessPhaseRequestBody(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("processPhase returned error: %v", err)
+	}
+	if verr := resp.ValidateAll(); verr != nil {
+		t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 	}
 	if phase != REQUEST_PHASE_REQUEST_BODY {
 		t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_BODY)
@@ -203,6 +285,9 @@ func TestProcessPhaseResponseHeadersUpdatesContext(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("processPhase returned error: %v", err)
+	}
+	if verr := resp.ValidateAll(); verr != nil {
+		t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 	}
 	if phase != REQUEST_PHASE_RESPONSE_HEADERS {
 		t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_RESPONSE_HEADERS)
@@ -256,6 +341,9 @@ func TestProcessPhaseResponseBodyDoesNotAddExtprocName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("processPhase returned error: %v", err)
 	}
+	if verr := resp.ValidateAll(); verr != nil {
+		t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+	}
 	if phase != REQUEST_PHASE_RESPONSE_BODY {
 		t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_RESPONSE_BODY)
 	}
@@ -295,6 +383,9 @@ func TestProcessPhaseResponseTrailers(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("processPhase returned error: %v", err)
+	}
+	if verr := resp.ValidateAll(); verr != nil {
+		t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 	}
 	if phase != REQUEST_PHASE_RESPONSE_TRAILERS {
 		t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_RESPONSE_TRAILERS)
@@ -459,6 +550,11 @@ func TestProcessStreamExternalProcessingDurationObserved(t *testing.T) {
 	if err := s.Process(stream); err != nil {
 		t.Fatalf("Process returned error %v, want nil", err)
 	}
+	for i, sentResp := range stream.sent {
+		if verr := sentResp.ValidateAll(); verr != nil {
+			t.Errorf("stream.sent[%d].ValidateAll() = %v, want nil", i, verr)
+		}
+	}
 
 	families := gatherRegisteredMetrics(t, s.metrics)
 	family := findMetricFamily(t, families, "extproc_external_processing_seconds")
@@ -528,6 +624,9 @@ func TestProcessPhaseClearRouteCachePropagatesToEnvoyResponse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("processPhase returned error: %v", err)
 		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
+		}
 		if phase != REQUEST_PHASE_REQUEST_HEADERS {
 			t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_HEADERS)
 		}
@@ -560,6 +659,9 @@ func TestProcessPhaseClearRouteCachePropagatesToEnvoyResponse(t *testing.T) {
 		}, proc, rc)
 		if err != nil {
 			t.Fatalf("processPhase returned error: %v", err)
+		}
+		if verr := resp.ValidateAll(); verr != nil {
+			t.Errorf("resp.ValidateAll() = %v, want nil", verr)
 		}
 		if phase != REQUEST_PHASE_REQUEST_HEADERS {
 			t.Errorf("phase = %d, want %d", phase, REQUEST_PHASE_REQUEST_HEADERS)

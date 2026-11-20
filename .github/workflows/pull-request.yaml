@@ -19,6 +19,7 @@ jobs:
           go build -o /dev/null ./...
           (cd examples && go build -o /dev/null ./...)
           (cd test && go build -o /dev/null ./...)
+          (cd conformance && go build -o /dev/null ./... && go test -short ./...)
       # test/Dockerfile is covered by the integration job, but o/w examples/Dockerfile not covered
       - name: Check example image build
         run: docker build -f examples/Dockerfile -t extproc-examples:ci .

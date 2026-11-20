@@ -1,0 +1,12 @@
+{
+  "default": "v1.40-latest",
+  "supported": [
+    "v1.37-latest",
+    "v1.38-latest",
+    "v1.39-latest",
+    "v1.40-latest"
+  ],
+  "canary": [
+    "dev"
+  ]
+}
