@@ -3,6 +3,7 @@ package extproc
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 const (
@@ -96,10 +98,19 @@ func (hv HeaderValue) ToEnvoyHeaderValueOption(name string, action string) (*cor
 	if !ok {
 		return nil, fmt.Errorf("unknown header append action %q", action)
 	}
-	return &corev3.HeaderValueOption{
+	appendAction := corev3.HeaderValueOption_HeaderAppendAction(v)
+	ho := &corev3.HeaderValueOption{
 		Header:       hv.ToEnvoyHeaderValue(name),
-		AppendAction: corev3.HeaderValueOption_HeaderAppendAction(v),
-	}, nil
+		AppendAction: appendAction,
+	}
+	// Envoy's ext_proc MutationUtils::applyHeaderMutations evaluates deprecated
+	// HeaderValueOption.append (defaulting to false) rather than append_action
+	// (envoyproxy/envoy#48886). Setting Append=true for APPEND_IF_EXISTS_OR_ADD
+	// preserves append behavior without colliding with non-zero AppendAction.
+	if appendAction == corev3.HeaderValueOption_APPEND_IF_EXISTS_OR_ADD {
+		ho.Append = wrapperspb.Bool(true)
+	}
+	return ho, nil
 }
 
 func BuildHeaderValuesFromMap(headers map[string]string) map[string]HeaderValue {
@@ -121,13 +132,78 @@ type RequestContext struct {
 
 	AllHeaders AllHeaders
 
-	Started     time.Time
-	Duration    time.Duration
-	EndOfStream bool
-	data        map[string]any
+	Started           time.Time
+	Duration          time.Duration
+	EndOfStream       bool
+	ObservabilityMode bool
+	data              map[string]any
 
-	phase    int
-	response PhaseResponse
+	phase           int
+	response        PhaseResponse
+	reqHeaderKeys   map[string]bool
+	respHeaderKeys  map[string]bool
+	phaseHeaderKeys map[string]bool
+}
+
+func headerKeySet(h AllHeaders) map[string]bool {
+	keys := make(map[string]bool, len(h.Headers))
+	for k := range h.Headers {
+		keys[strings.ToLower(k)] = true
+	}
+	return keys
+}
+
+// resolveHeaderMutation filters SetHeaders using known phase headers to enforce
+// ADD_IF_ABSENT and OVERWRITE_IF_EXISTS semantics while Envoy's ext_proc filter
+// ignores HeaderValueOption.append_action (envoyproxy/envoy#48886). known is
+// never mutated; the returned map reflects the post-mutation key set.
+func resolveHeaderMutation(hm *extprocv3.HeaderMutation, known map[string]bool) (*extprocv3.HeaderMutation, map[string]bool) {
+	if hm == nil || known == nil {
+		return hm, nil
+	}
+
+	state := maps.Clone(known)
+	for _, rm := range hm.RemoveHeaders {
+		k := strings.ToLower(rm)
+		// Envoy ignores attempts to remove pseudo-headers or the host header.
+		if !strings.HasPrefix(k, ":") && k != "host" {
+			delete(state, k)
+		}
+	}
+
+	filtered := make([]*corev3.HeaderValueOption, 0, len(hm.SetHeaders))
+	for _, ho := range hm.SetHeaders {
+		if ho == nil {
+			continue
+		}
+		k := strings.ToLower(ho.GetHeader().GetKey())
+		exists := state[k]
+		switch ho.GetAppendAction() {
+		case corev3.HeaderValueOption_ADD_IF_ABSENT:
+			if exists {
+				continue
+			}
+			state[k] = true
+			filtered = append(filtered, ho)
+		case corev3.HeaderValueOption_OVERWRITE_IF_EXISTS:
+			if !exists {
+				continue
+			}
+			filtered = append(filtered, ho)
+		default:
+			state[k] = true
+			filtered = append(filtered, ho)
+		}
+	}
+
+	return &extprocv3.HeaderMutation{
+		SetHeaders:    filtered,
+		RemoveHeaders: hm.RemoveHeaders,
+	}, state
+}
+
+func (rc *RequestContext) resolvedHeaderMutation() (*extprocv3.HeaderMutation, map[string]bool) {
+	return resolveHeaderMutation(rc.response.headerMutation, rc.phaseHeaderKeys)
 }
 
 // data must be allocated here, not in initReqCtx: that only runs in the
@@ -165,6 +241,8 @@ func initReqCtx(rc *RequestContext, headers *corev3.HeaderMap) error {
 	if err != nil {
 		return fmt.Errorf("parsing headers failed: %w", err)
 	}
+	rc.reqHeaderKeys = headerKeySet(rc.AllHeaders)
+	rc.phaseHeaderKeys = rc.reqHeaderKeys
 
 	for _, h := range headers.Headers {
 		switch h.Key {
@@ -207,6 +285,8 @@ func (rc *RequestContext) SetValue(name string, val any) error {
 func (rc *RequestContext) ResetPhase() error {
 	rc.phase = REQUEST_PHASE_UNDETERMINED
 	rc.EndOfStream = false
+	rc.ObservabilityMode = false
+	rc.phaseHeaderKeys = nil
 	rc.response.headerMutation = &extprocv3.HeaderMutation{}
 	rc.response.bodyMutation = nil
 	rc.response.continueRequest = nil
@@ -232,9 +312,10 @@ func (rc *RequestContext) ContinueRequest() error {
 		rc.response.immediateResponse = nil
 	}
 
+	hm, _ := rc.resolvedHeaderMutation()
 	rc.response.continueRequest = &extprocv3.CommonResponse{
 		// status? (ie response phase status)
-		HeaderMutation: rc.response.headerMutation,
+		HeaderMutation: hm,
 		BodyMutation:   rc.response.bodyMutation,
 		// trailers?
 		ClearRouteCache: rc.response.clearRouteCache,
@@ -315,10 +396,11 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 		}, nil
 
 	case REQUEST_PHASE_REQUEST_TRAILERS:
+		hm, _ := rc.resolvedHeaderMutation()
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_RequestTrailers{
 				RequestTrailers: &extprocv3.TrailersResponse{
-					HeaderMutation: rc.response.headerMutation,
+					HeaderMutation: hm,
 				},
 			},
 		}, nil
@@ -342,10 +424,11 @@ func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse,
 		}, nil
 
 	case REQUEST_PHASE_RESPONSE_TRAILERS:
+		hm, _ := rc.resolvedHeaderMutation()
 		return &extprocv3.ProcessingResponse{
 			Response: &extprocv3.ProcessingResponse_ResponseTrailers{
 				ResponseTrailers: &extprocv3.TrailersResponse{
-					HeaderMutation: rc.response.headerMutation,
+					HeaderMutation: hm,
 				},
 			},
 		}, nil

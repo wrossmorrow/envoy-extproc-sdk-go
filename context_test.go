@@ -243,3 +243,110 @@ func TestMetricsCollectorsCoverEveryField(t *testing.T) {
 		t.Logf("gathered %d metric families", len(families))
 	}
 }
+
+func TestToEnvoyHeaderValueOptionAppendFlag(t *testing.T) {
+	cases := []struct {
+		action     string
+		wantEnum   corev3.HeaderValueOption_HeaderAppendAction
+		wantAppend bool
+	}{
+		{
+			action:     "APPEND_IF_EXISTS_OR_ADD",
+			wantEnum:   corev3.HeaderValueOption_APPEND_IF_EXISTS_OR_ADD,
+			wantAppend: true,
+		},
+		{
+			action:     "ADD_IF_ABSENT",
+			wantEnum:   corev3.HeaderValueOption_ADD_IF_ABSENT,
+			wantAppend: false,
+		},
+		{
+			action:     "OVERWRITE_IF_EXISTS_OR_ADD",
+			wantEnum:   corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+			wantAppend: false,
+		},
+		{
+			action:     "OVERWRITE_IF_EXISTS",
+			wantEnum:   corev3.HeaderValueOption_OVERWRITE_IF_EXISTS,
+			wantAppend: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.action, func(t *testing.T) {
+			ho, err := (HeaderValue{RawValue: []byte("v")}).ToEnvoyHeaderValueOption("x-h", tc.action)
+			if err != nil {
+				t.Fatalf("ToEnvoyHeaderValueOption returned error: %v", err)
+			}
+			if verr := ho.ValidateAll(); verr != nil {
+				t.Errorf("ho.ValidateAll() = %v, want nil", verr)
+			}
+			if ho.GetAppendAction() != tc.wantEnum {
+				t.Errorf("AppendAction = %v, want %v", ho.GetAppendAction(), tc.wantEnum)
+			}
+			if tc.wantAppend {
+				if ho.GetAppend() == nil || !ho.GetAppend().GetValue() {
+					t.Errorf("Append = %v, want BoolValue(true)", ho.GetAppend())
+				}
+			} else if ho.GetAppend() != nil {
+				t.Errorf("Append = %v, want nil", ho.GetAppend())
+			}
+		})
+	}
+}
+
+func TestResolveHeaderMutationEnforcesAddIfAbsentAndOverwriteIfExists(t *testing.T) {
+	rc := newRequestContext()
+	in := &corev3.HeaderMap{
+		Headers: []*corev3.HeaderValue{
+			{Key: ":authority", RawValue: []byte("example.com")},
+			{Key: "x-existing", RawValue: []byte("keep")},
+			{Key: "x-remove-then-add", RawValue: []byte("old")},
+		},
+	}
+	if err := initReqCtx(rc, in); err != nil {
+		t.Fatalf("initReqCtx failed: %v", err)
+	}
+	rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+
+	_ = rc.AddHeader("x-existing", HeaderValue{RawValue: []byte("ignored")})
+	_ = rc.AddHeader("x-absent", HeaderValue{RawValue: []byte("first")})
+	_ = rc.AddHeader("x-absent", HeaderValue{RawValue: []byte("second")})
+	_ = rc.UpdateHeader("x-missing", HeaderValue{RawValue: []byte("nope")}, "OVERWRITE_IF_EXISTS")
+	_ = rc.UpdateHeader("x-existing", HeaderValue{RawValue: []byte("replaced")}, "OVERWRITE_IF_EXISTS")
+	_ = rc.RemoveHeader("x-remove-then-add")
+	_ = rc.AddHeader("x-remove-then-add", HeaderValue{RawValue: []byte("fresh")})
+	_ = rc.RemoveHeader(":authority")
+	_ = rc.AddHeader(":authority", HeaderValue{RawValue: []byte("spoof")})
+
+	resp1, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+	if err != nil {
+		t.Fatalf("GetResponse(1) failed: %v", err)
+	}
+	resp2, err := rc.GetResponse(REQUEST_PHASE_REQUEST_HEADERS)
+	if err != nil {
+		t.Fatalf("GetResponse(2) failed: %v", err)
+	}
+
+	extract := func(r []*corev3.HeaderValueOption) []string {
+		out := make([]string, 0, len(r))
+		for _, h := range r {
+			out = append(out, h.GetHeader().GetKey()+"="+string(h.GetHeader().GetRawValue())+":"+h.GetAppendAction().String())
+		}
+		return out
+	}
+
+	got1 := extract(resp1.GetRequestHeaders().GetResponse().GetHeaderMutation().GetSetHeaders())
+	got2 := extract(resp2.GetRequestHeaders().GetResponse().GetHeaderMutation().GetSetHeaders())
+	want := []string{
+		"x-absent=first:ADD_IF_ABSENT",
+		"x-existing=replaced:OVERWRITE_IF_EXISTS",
+		"x-remove-then-add=fresh:ADD_IF_ABSENT",
+	}
+	if !slices.Equal(got1, want) {
+		t.Errorf("SetHeaders(1) = %v, want %v", got1, want)
+	}
+	if !slices.Equal(got2, want) {
+		t.Errorf("SetHeaders(2) = %v, want %v (idempotent)", got2, want)
+	}
+}

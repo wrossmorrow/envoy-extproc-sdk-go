@@ -191,6 +191,10 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 				return status.Errorf(codes.Unknown, "processor failed and abort requested: %v", err)
 			}
 		}
+		if req.GetObservabilityMode() {
+			s.logger.Debug("Observability mode active; suppressing ProcessingResponse", slog.String("phase", phase_name))
+			continue
+		}
 		if resp == nil {
 			s.metrics.TotalEmptyResponses.Inc()
 			s.logger.Warn("Phase processing did not define a response", slog.String("phase", RequestPhaseToString(phase)))
@@ -235,6 +239,10 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 	)
 
 	phase := REQUEST_PHASE_UNDETERMINED
+	obs := procReq.GetObservabilityMode()
+	if rc != nil {
+		rc.ObservabilityMode = obs
+	}
 
 	ps = time.Now()
 	switch req := procReq.Request.(type) {
@@ -254,6 +262,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			return nil, phase, err
 		}
 		rc.EndOfStream = h.EndOfStream
+		rc.ObservabilityMode = obs
 		// initReqCtx resets the phase, so set it again once the context is
 		// initialized; processors must observe the phase they are handling
 		rc.setPhase(phase)
@@ -265,6 +274,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 	case *extprocv3.ProcessingRequest_RequestBody:
 		phase = REQUEST_PHASE_REQUEST_BODY
 		rc.setPhase(phase)
+		rc.phaseHeaderKeys = rc.reqHeaderKeys
 		s.logger.Debug("Processing request Body", slog.Any("request", req))
 		s.metrics.TotalRequestBody.Inc()
 
@@ -292,6 +302,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			s.processor.ErrorHandler(rc, phase, err)
 			return nil, phase, err
 		}
+		rc.phaseHeaderKeys = headerKeySet(trailers)
 
 		err = processor.ProcessRequestTrailers(rc, trailers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
@@ -313,21 +324,24 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			s.processor.ErrorHandler(rc, phase, err)
 			return nil, phase, err
 		}
+		rc.respHeaderKeys = headerKeySet(headers)
+		rc.phaseHeaderKeys = rc.respHeaderKeys
 
 		err = processor.ProcessResponseHeaders(rc, headers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
 		rc.Duration += dur
 
-		if s.options.UpdateExtProcHeader {
+		if !obs && s.options.UpdateExtProcHeader {
 			rc.AppendHeader("x-extproc-names", HeaderValue{RawValue: []byte(s.name)})
 		}
-		if rc.EndOfStream && s.options.UpdateDurationHeader {
+		if !obs && rc.EndOfStream && s.options.UpdateDurationHeader {
 			rc.AppendHeader("x-extproc-duration-ns", HeaderValue{RawValue: []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10))})
 		}
 
 	case *extprocv3.ProcessingRequest_ResponseBody:
 		phase = REQUEST_PHASE_RESPONSE_BODY
 		rc.setPhase(phase)
+		rc.phaseHeaderKeys = rc.respHeaderKeys
 		s.logger.Debug("Processing response Body", slog.Any("request", req))
 		s.metrics.TotalResponseBody.Inc()
 
@@ -340,7 +354,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 		dur = time.Since(ps)
 		rc.Duration += dur
 
-		if rc.EndOfStream && s.options.UpdateDurationHeader {
+		if !obs && rc.EndOfStream && s.options.UpdateDurationHeader {
 			rc.AppendHeader("x-extproc-duration-ns", HeaderValue{RawValue: []byte(strconv.FormatInt(rc.Duration.Nanoseconds(), 10))})
 		}
 
@@ -359,6 +373,7 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 			s.processor.ErrorHandler(rc, phase, err)
 			return nil, phase, err
 		}
+		rc.phaseHeaderKeys = headerKeySet(trailers)
 
 		err = processor.ProcessResponseTrailers(rc, trailers) //nolint:errcheck,staticcheck
 		dur = time.Since(ps)
@@ -377,6 +392,19 @@ func (s *GenericExtProcServer) processPhase(procReq *extprocv3.ProcessingRequest
 
 	s.logger.Debug("Phase processing complete", slog.String("phase", RequestPhaseToString(phase)), slog.String("duration", dur.String()))
 	s.logger.Debug("RequestContext state", slog.Any("context", rc))
+	if obs {
+		return nil, phase, nil
+	}
+
+	_, nextKeys := rc.resolvedHeaderMutation()
 	response, err := rc.GetResponse(phase)
+	if err == nil && nextKeys != nil {
+		switch phase {
+		case REQUEST_PHASE_REQUEST_HEADERS, REQUEST_PHASE_REQUEST_BODY:
+			rc.reqHeaderKeys = nextKeys
+		case REQUEST_PHASE_RESPONSE_HEADERS, REQUEST_PHASE_RESPONSE_BODY:
+			rc.respHeaderKeys = nextKeys
+		}
+	}
 	return response, phase, err
 }

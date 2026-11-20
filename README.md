@@ -67,11 +67,12 @@ type RequestContext struct {
   FullPath  string
   RequestID string
   AllHeaders AllHeaders
-  Started     time.Time
-  Duration    time.Duration
-  EndOfStream bool
-  data        map[string]any
-  response    PhaseResponse
+  Started           time.Time
+  Duration          time.Duration
+  EndOfStream       bool
+  ObservabilityMode bool
+  data              map[string]any
+  response          PhaseResponse
 }
 ```
 that work together to allow processing of requests and responses. An ExtProc service can be run with the `MustServe` method as in
@@ -97,6 +98,7 @@ The `RequestContext` is initialized with request data when request headers are r
 * the request processing stream start time in `Started`
 * an accumulator `Duration` _for the time spent in external processing_
 * a flag `EndOfStream` from gRPC messages for header and body phases
+* a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages)
 
 This context is carried through every request phase, meaning that data can be shared _across_ phases particularly in the generic slot `data` for arbitrary values. Define and access data with `RequestContext.SetValue` and `RequestContext.GetValue` methods. Values are stored generically as `any`, so to use them you must re-type the data upoin retrieval. See the [data](#data) or [digest](#digest) examples.
 
