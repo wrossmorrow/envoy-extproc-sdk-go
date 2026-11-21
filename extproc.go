@@ -114,6 +114,18 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 	rc := newRequestContext()
 	ctx := srv.Context()
 
+	var interimSendErr error
+	rc.sendTimeoutOverride = func(interimResp *extprocv3.ProcessingResponse) error {
+		s.logger.Debug("Sending OverrideMessageTimeout ProcessingResponse",
+			slog.String("phase", rc.GetPhaseName()),
+			slog.Duration("timeout", interimResp.GetOverrideMessageTimeout().AsDuration()))
+		if sendErr := srv.Send(interimResp); sendErr != nil {
+			interimSendErr = sendErr
+			return sendErr
+		}
+		return nil
+	}
+
 	// a stream is counted as errored at most once, however many phases failed;
 	// PhaseErrors carries the per-phase count
 	errored := false
@@ -181,8 +193,21 @@ func (s *GenericExtProcServer) Process(srv extprocv3.ExternalProcessor_ProcessSe
 			}
 		}
 
+		interimSendErr = nil
 		resp, phase, err := s.processPhase(req, s.processor, rc)
 		phase_name := RequestPhaseToString(phase)
+		if interimSendErr != nil {
+			if isStreamCancelled(interimSendErr) {
+				s.processor.ErrorHandler(rc, phase, interimSendErr)
+				s.logger.Debug("Timeout override send cancelled", slog.String("phase", phase_name), slog.String("error", interimSendErr.Error()))
+				return nil
+			}
+			errored = true
+			s.metrics.ResponseSendErrors.Inc()
+			s.logger.Error("Send OverrideMessageTimeout error", slog.String("phase", phase_name), slog.String("error", interimSendErr.Error()))
+			s.processor.ErrorHandler(rc, phase, interimSendErr)
+			return status.Errorf(codes.Unknown, "failed to send timeout override to envoy: %v", interimSendErr)
+		}
 		if err != nil {
 			errored = true
 			s.metrics.PhaseErrors.Inc()

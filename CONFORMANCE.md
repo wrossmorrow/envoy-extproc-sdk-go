@@ -20,7 +20,7 @@ Verification in this repository is intentionally split into two tiers:
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]
-> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete, and `ObservabilityMode`, `HeaderAppendAction` (`envoyproxy/envoy#48886`), `mode_override`, `protocol_config`, and dynamic metadata & CEL attributes are supported and verified across `v1.37`–`v1.40`. Remaining Phase 4 items cover `override_message_timeout` and full-duplex streaming.
+> Phases 1–3 of [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) are complete, and all additive 1:1 `ext_proc` v3 extensions (`ObservabilityMode`, `HeaderAppendAction` via `envoyproxy/envoy#48886`, `mode_override`, `protocol_config`, dynamic metadata & CEL attributes, and `override_message_timeout`) are supported and verified across `v1.37`–`v1.40`. Only non-1:1 full-duplex streaming (`CONTINUE_AND_REPLACE` / `FULL_DUPLEX_STREAMED`) remains outside the synchronous `RequestProcessor` model.
 
 ---
 
@@ -51,7 +51,7 @@ Verification in this repository is intentionally split into two tiers:
 | Spec Extensions | Protocol configuration (protocol_config) | Supported | `ProtocolConfig, RequestContext.ProtocolConfig, RequestContext.DefaultModeOverride` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Stream-scoped capture across NONE/BUFFERED/STREAMED/BUFFERED_PARTIAL, request_header_mode=SKIP, send_body_without_waiting_for_header_response, and DefaultModeOverride |
 | Spec Extensions | Dynamic mode override (mode_override) | Supported | `ModeOverride, OverrideMode, ClearModeOverride, SkipRemainingPhases` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Dynamic body/trailer opt-in, SkipRemainingPhases, ResponseHeaders override, allow_mode_override=false, and allowed_override_modes |
 | Spec Extensions | Dynamic metadata & CEL attributes | Supported | `Metadata, TypedMetadata, Attributes, SetDynamicMetadata, SetDynamicMetadataNamespace, ClearDynamicMetadata` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Inbound untyped/typed metadata_context, outbound dynamic_metadata (receiving_namespaces allowlist & ImmediateResponse), and CEL request/response attributes |
-| Spec Extensions | Per-message timeout override | Not Yet Supported | `override_message_timeout` | — | — | — | — | Not yet exposed |
+| Spec Extensions | Per-message timeout override | Supported | `RequestContext.OverrideMessageTimeout` | PASS (1/1) | PASS (1/1) | PASS (1/1) | PASS (1/1) | Mid-phase interim ProcessingResponse extension within max_message_timeout, multi-phase reset, and fail-closed 504 when unset or exceeded |
 | Spec Extensions | CONTINUE_AND_REPLACE & full-duplex streaming | Not Yet Supported | `CONTINUE_AND_REPLACE, FULL_DUPLEX_STREAMED, GRPC` | — | — | — | — | Requires non-1:1 streaming model beyond RequestProcessor |
 
 <!-- END GENERATED CONFORMANCE MATRIX -->

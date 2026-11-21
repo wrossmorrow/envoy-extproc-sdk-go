@@ -1906,4 +1906,143 @@ func runPhase2Scenarios(t *testing.T, env conformanceEnv) {
 			env.runner.AssertNoProtocolErrors(t)
 		})
 	})
+
+	t.Run("override_message_timeout", func(t *testing.T) {
+		t.Run("extends_deadline_beyond_base_message_timeout", func(t *testing.T) {
+			caseID := "timeout-override-extend"
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					if err := ctx.OverrideMessageTimeout(1 * time.Second); err != nil {
+						return err
+					}
+					time.Sleep(300 * time.Millisecond)
+					return ctx.AddHeader("x-extended", extproc.HeaderValue{RawValue: []byte("true")})
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/profile/timeout-override/extend", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			echo := decodeEcho(t, body)
+			if got := echo.Headers["x-extended"]; !slices.Equal(got, []string{"true"}) {
+				t.Errorf("upstream x-extended = %v, want [true]", got)
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+
+		t.Run("multiple_phases_can_each_extend_once", func(t *testing.T) {
+			caseID := "timeout-override-multi"
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					if err := ctx.OverrideMessageTimeout(1 * time.Second); err != nil {
+						return err
+					}
+					time.Sleep(250 * time.Millisecond)
+					return ctx.ContinueRequest()
+				},
+				RequestBody: func(ctx *extproc.RequestContext, _ []byte) error {
+					if err := ctx.OverrideMessageTimeout(1 * time.Second); err != nil {
+						return err
+					}
+					time.Sleep(250 * time.Millisecond)
+					return ctx.ReplaceBody([]byte("extended-both"))
+				},
+			})
+			t.Cleanup(func() { env.extprocSrv.Processor.Unregister(caseID) })
+
+			req, err := http.NewRequest(http.MethodPost, env.runner.ProxyURL()+"/profile/timeout-override/multi", strings.NewReader("raw-slow"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body=%q)", resp.StatusCode, string(body))
+			}
+			echo := decodeEcho(t, body)
+			if echo.Body != "extended-both" {
+				t.Errorf("upstream echo.Body = %q, want extended-both", echo.Body)
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+
+		t.Run("exceeding_max_message_timeout_is_ignored_and_times_out", func(t *testing.T) {
+			caseID := "timeout-override-exceed"
+			release := make(chan struct{})
+			done := make(chan struct{})
+			var releaseOnce sync.Once
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					defer close(done)
+					if err := ctx.OverrideMessageTimeout(3 * time.Second); err != nil {
+						return err
+					}
+					<-release
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() {
+				releaseOnce.Do(func() { close(release) })
+				env.extprocSrv.Processor.Unregister(caseID)
+			})
+
+			req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/profile/timeout-override/exceed", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			releaseOnce.Do(func() { close(release) })
+			<-done
+			if resp.StatusCode != http.StatusGatewayTimeout {
+				t.Errorf("exceeded max_message_timeout status = %d, want 504 (body=%q)", resp.StatusCode, string(body))
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+
+		t.Run("ignored_when_max_message_timeout_unset", func(t *testing.T) {
+			caseID := "timeout-override-no-max"
+			release := make(chan struct{})
+			done := make(chan struct{})
+			var releaseOnce sync.Once
+			env.extprocSrv.Processor.Register(caseID, CaseHandler{
+				RequestHeaders: func(ctx *extproc.RequestContext, _ extproc.AllHeaders) error {
+					defer close(done)
+					if err := ctx.OverrideMessageTimeout(1 * time.Second); err != nil {
+						return err
+					}
+					<-release
+					return ctx.ContinueRequest()
+				},
+			})
+			t.Cleanup(func() {
+				releaseOnce.Do(func() { close(release) })
+				env.extprocSrv.Processor.Unregister(caseID)
+			})
+
+			req, err := http.NewRequest(http.MethodGet, env.runner.ProxyURL()+"/profile/timeout-fail-closed/no-max", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(CaseHeader, caseID)
+
+			resp, body := doRequest(t, env.http1Client, req)
+			releaseOnce.Do(func() { close(release) })
+			<-done
+			if resp.StatusCode != http.StatusGatewayTimeout {
+				t.Errorf("unset max_message_timeout status = %d, want 504 (body=%q)", resp.StatusCode, string(body))
+			}
+			env.runner.AssertNoProtocolErrors(t)
+		})
+	})
 }

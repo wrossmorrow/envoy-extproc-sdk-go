@@ -38,6 +38,7 @@ const (
 	extProcMetaFirstFilterName        = "extproc_meta_first"
 	extProcMetaSecondFilterName       = "extproc_meta_second"
 	extProcAttributesFilterName       = "extproc_attributes"
+	extProcTimeoutOverrideFilterName  = "extproc_timeout_override"
 	extProcClusterDefault             = "extproc_service"
 	extProcClusterAbort               = "extproc_abort_service"
 	extProcClusterSecondary           = "extproc_secondary_service"
@@ -147,6 +148,7 @@ type extProcFilterOptions struct {
 	clusterName            string
 	failureModeAllow       bool
 	messageTimeout         time.Duration
+	maxMessageTimeout      time.Duration
 	observability          bool
 	disabledByDefault      bool
 	allowModeOverride      bool
@@ -159,7 +161,7 @@ type extProcFilterOptions struct {
 }
 
 func buildExtProcFilterWithOptions(o extProcFilterOptions) (*hcmv3.HttpFilter, error) {
-	cfgAny, err := mustAny(&extproccfgv3.ExternalProcessor{
+	epCfg := &extproccfgv3.ExternalProcessor{
 		GrpcService: &corev3.GrpcService{
 			TargetSpecifier: &corev3.GrpcService_EnvoyGrpc_{
 				EnvoyGrpc: &corev3.GrpcService_EnvoyGrpc{
@@ -181,7 +183,11 @@ func buildExtProcFilterWithOptions(o extProcFilterOptions) (*hcmv3.HttpFilter, e
 		MetadataOptions:    o.metadataOptions,
 		RequestAttributes:  o.requestAttributes,
 		ResponseAttributes: o.responseAttributes,
-	})
+	}
+	if o.maxMessageTimeout > 0 {
+		epCfg.MaxMessageTimeout = durationpb.New(o.maxMessageTimeout)
+	}
+	cfgAny, err := mustAny(epCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +235,17 @@ func makeExtProcFilterWithMetadata(name, clusterName string, metaOpts *extproccf
 		metadataOptions:    metaOpts,
 		requestAttributes:  reqAttrs,
 		responseAttributes: respAttrs,
+	})
+}
+
+func makeExtProcFilterWithMaxTimeout(name, clusterName string, messageTimeout, maxMessageTimeout time.Duration, mode *extproccfgv3.ProcessingMode) (*hcmv3.HttpFilter, error) {
+	return buildExtProcFilterWithOptions(extProcFilterOptions{
+		name:              name,
+		clusterName:       clusterName,
+		messageTimeout:    messageTimeout,
+		maxMessageTimeout: maxMessageTimeout,
+		disabledByDefault: true,
+		mode:              mode,
 	})
 }
 
@@ -469,6 +486,10 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 		return nil, nil, err
 	}
 	attributesRoute.Name = "conformance_attributes_route"
+	timeoutOverrideRoute, err := makeProfileRoute("/profile/timeout-override", disabledPerRouteAny, extProcTimeoutOverrideFilterName)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	defaultFilter, err := makeExtProcFilter(extProcFilterName, extProcClusterDefault, false, 5*time.Second, false, false, bufferedProcessingMode())
 	if err != nil {
@@ -542,6 +563,16 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 		nil,
 		[]string{"request.path", "request.url_path", "request.method", "request.protocol", "xds.route_name"},
 		[]string{"response.code"},
+		bufferedProcessingMode(),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	timeoutOverrideFilter, err := makeExtProcFilterWithMaxTimeout(
+		extProcTimeoutOverrideFilterName,
+		extProcClusterDefault,
+		150*time.Millisecond,
+		1500*time.Millisecond,
 		bufferedProcessingMode(),
 	)
 	if err != nil {
@@ -632,6 +663,7 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 						sendBodyNoWaitRoute,
 						metadataChainRoute,
 						attributesRoute,
+						timeoutOverrideRoute,
 						{
 							Match: &routev3.RouteMatch{
 								PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
@@ -660,6 +692,7 @@ func BuildBootstrap(p BootstrapParams) (*bootstrapv3.Bootstrap, []byte, error) {
 			metaFirstFilter,
 			metaSecondFilter,
 			attributesFilter,
+			timeoutOverrideFilter,
 			{
 				Name:       "envoy.filters.http.router",
 				ConfigType: &hcmv3.HttpFilter_TypedConfig{TypedConfig: routerAny},
