@@ -1,5 +1,34 @@
 # Migration notes
 
+## v0.4.0 (from v0.3.x)
+
+This release is purely additive and has no breaking source-level API changes — existing `RequestProcessor` implementations compile and run without modification.
+
+### Dynamic processing mode overrides (`mode_override`)
+
+Added per-request dynamic processing mode overrides for `REQUEST_HEADERS` and `RESPONSE_HEADERS` phases (requires `allow_mode_override: true` on Envoy's `ext_proc` filter):
+
+- Exported `HeaderSendMode` (`HeaderModeDefault`, `HeaderModeSend`, `HeaderModeSkip`), `BodySendMode` (`BodyModeNone`, `BodyModeStreamed`, `BodyModeBuffered`, `BodyModeBufferedPartial`, `BodyModeFullDuplexStreamed`, `BodyModeGRPC`), `ModeOverride`, and `ModeOverride.ToEnvoyProcessingMode()`.
+- Added `RequestContext.OverrideMode(m ModeOverride) error`, `RequestContext.ClearModeOverride()`, and `RequestContext.SkipRemainingPhases() error` (cleared between phases by `ResetPhase()` and omitted on `ImmediateResponse`).
+- Updated `examples/masker.go` and `examples/envoy.yaml` to opt dynamically into `BodyModeBuffered` only for JSON payloads.
+- **Envoy notes**: `BodySendMode` has no `DEFAULT` value (`BodyModeNone` is `0`). Additionally, when Envoy configures `allowed_override_modes`, Envoy resolves `DEFAULT` header/trailer fields in `response.mode_override` against the filter's static `processing_mode` before checking the allowlist, so `allowed_override_modes` entries must specify explicit `SEND`/`SKIP` values rather than `DEFAULT`.
+
+### Stream protocol configuration (`protocol_config`)
+
+- Added `ProtocolConfig` (`RequestBodyMode`, `ResponseBodyMode`, `SendBodyWithoutWaitingForHeaderResponse`) and `RequestContext.ProtocolConfig` (`*ProtocolConfig`), captured from the first `ProcessingRequest` of each stream (including under `request_header_mode: SKIP`) and retained across all phases of that stream.
+- Added `RequestContext.DefaultModeOverride() ModeOverride`, pre-populated with Envoy's configured `RequestBodyMode` and `ResponseBodyMode` from `ProtocolConfig` so callers overriding a single body direction in `ProcessRequestHeaders` do not zero the other direction to `BodyModeNone` (`0`).
+
+### Dynamic metadata and CEL attributes (`metadata_context`, `dynamic_metadata`, `attributes`)
+
+- **Inbound (`RequestContext`)**: Added stream-accumulated `Metadata` (`map[string]map[string]any` for `metadata_options.forwarding_namespaces.untyped`), `TypedMetadata` (`map[string]*anypb.Any` for `metadata_options.forwarding_namespaces.typed`), and `Attributes` (`map[string]any` flattening evaluated `request_attributes` and `response_attributes` from Envoy's `"envoy.filters.http.ext_proc"` attribute map).
+- **Outbound (`RequestContext`)**: Added per-phase `SetDynamicMetadata(namespace, key string, value any) error`, `SetDynamicMetadataNamespace(namespace string, values map[string]any) error` (all-or-nothing `structpb` validation), and `ClearDynamicMetadata()`, attached across all 6 phase responses as well as `ImmediateResponse` (`CancelRequest`).
+- **Envoy notes**: Returned namespaces are ignored unless listed in `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct` encodes numeric values as `float64` when read back via `AsMap()`.
+
+### Per-message timeout overrides (`override_message_timeout`)
+
+- Added `RequestContext.OverrideMessageTimeout(timeout time.Duration) error`, which immediately transmits an interim PGV-valid `ProcessingResponse` mid-phase asking Envoy to replace the current phase's `message_timeout` timer (`1ms <= timeout <= max_message_timeout`, at most once per phase, and a safe no-op when `ObservabilityMode` is `true`).
+- **Operational warning**: `ext_proc` executes inline on Envoy's request/response hot path. Extending per-message timeouts pins downstream streams and any `BUFFERED` bodies in memory, sends an extra gRPC message on the stream, and multiplies concurrent active streams under load (`ServerOptions.MaxConcurrentStreams`, Envoy cluster circuit breakers, and route timeouts must be sized accordingly). Envoy ignores overrides unless `max_message_timeout >= timeout` is configured (`0` by default = disabled).
+
 ## v0.3.0 (from v0.2.x)
 
 This release has no breaking source-level API changes — existing `RequestProcessor` implementations compile without modification.
