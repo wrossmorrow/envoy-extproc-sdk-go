@@ -18,7 +18,7 @@ Several examples are provided here in the [examples](#examples), which can be re
 ## Usage
 
 > Upgrading from an earlier release? See [MIGRATION.md](MIGRATION.md) for API
-> and runtime behavior notes (`v0.3.0`, `v0.2.x`, and `v0.1.0`).
+> and runtime behavior notes (`v0.4.0`, `v0.3.0`, `v0.2.x`, and `v0.1.0`).
 >
 > Looking for supported Envoy versions, `ext_proc` v3 feature coverage, or the
 > conformance roadmap? See [CONFORMANCE.md](CONFORMANCE.md) and
