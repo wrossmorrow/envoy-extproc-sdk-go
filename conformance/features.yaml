@@ -202,10 +202,11 @@ features:
   - id: override_message_timeout
     category: Spec Extensions
     title: Per-message timeout override
-    sdk_status: unsupported
-    sdk_surface: "override_message_timeout"
-    tests: []
-    notes: "Not yet exposed"
+    sdk_status: supported
+    sdk_surface: "RequestContext.OverrideMessageTimeout"
+    tests:
+      - TestEnvoyConformance/override_message_timeout
+    notes: "Mid-phase interim ProcessingResponse extension within max_message_timeout, multi-phase reset, and fail-closed 504 when unset or exceeded"
 
   - id: continue_and_replace_and_full_duplex
     category: Spec Extensions
