@@ -213,6 +213,23 @@ _ = ctx.SetDynamicMetadataNamespace("com.acme.extproc", map[string]any{
 ```
 Use `ctx.ClearDynamicMetadata()` to discard pending outbound metadata for the current phase. Note that Envoy ignores returned namespaces unless they are listed in `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct` converts Go integer values to `float64` when read back via `AsMap()`.
 
+### Per-Message Timeout Override
+
+To request extra processing time on Envoy's current message timer mid-phase, call `OverrideMessageTimeout` before slow work in a processor callback:
+```go
+if err := ctx.OverrideMessageTimeout(750 * time.Millisecond); err != nil {
+	return err
+}
+```
+This immediately sends an interim `ProcessingResponse` with `override_message_timeout` set (at most once per phase; no-op when `ctx.ObservabilityMode` is `true`) and requires `max_message_timeout >= timeout >= 1ms` on Envoy's `ext_proc` filter (`max_message_timeout` defaults to `0`, disabling overrides).
+
+> [!WARNING]
+> **`ext_proc` runs inline on Envoy's request/response hot path.** Think carefully before extending per-message timeouts in production:
+> - **Inline head-of-line blocking**: holding an `ext_proc` phase open keeps downstream connections, Envoy filter state, and any `BUFFERED` HTTP request/response bodies pinned in memory.
+> - **Concurrency amplification (Little's Law)**: multiplying per-request dwell time multiplies active concurrent gRPC streams at steady RPS — size `ServerOptions.MaxConcurrentStreams`, Envoy cluster `http2_protocol_options` / circuit breakers, and overall Envoy route timeouts together or slow calls will cascade into `503`/`504` failures.
+> - **Extra gRPC round-trip**: `OverrideMessageTimeout` transmits an additional frame on the stream before your phase's final `ProcessingResponse`; gate it behind slow-path conditions rather than calling it unconditionally on every request.
+> - **Silent ignore when out of bounds**: if `max_message_timeout` is unset (`0`) or smaller than the requested duration (or `< 1ms`), Envoy increments `override_message_timeout_ignored` and keeps the original `message_timeout`.
+
 ## Examples
 
 You can run all the examples with

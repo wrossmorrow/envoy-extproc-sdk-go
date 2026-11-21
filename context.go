@@ -15,6 +15,7 @@ import (
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -226,6 +227,9 @@ type RequestContext struct {
 	reqHeaderKeys   map[string]bool
 	respHeaderKeys  map[string]bool
 	phaseHeaderKeys map[string]bool
+
+	sendTimeoutOverride func(resp *extprocv3.ProcessingResponse) error
+	timeoutExtended     bool
 }
 
 func headerKeySet(h AllHeaders) map[string]bool {
@@ -431,6 +435,7 @@ func (rc *RequestContext) ResetPhase() error {
 	rc.response.dynamicMetadata = nil
 	rc.response.modeOverride = nil
 	rc.response.clearRouteCache = false
+	rc.timeoutExtended = false
 	return nil
 }
 
@@ -607,6 +612,58 @@ func (rc *RequestContext) ensureDynamicMetadataNamespace(namespace string) *stru
 	}
 	rc.response.dynamicMetadata.Fields[namespace] = structpb.NewStructValue(nsStruct)
 	return nsStruct
+}
+
+func (rc *RequestContext) newTimeoutOverrideResponse(phase int, timeout time.Duration) (*extprocv3.ProcessingResponse, error) {
+	if timeout < time.Millisecond {
+		return nil, fmt.Errorf("override_message_timeout must be >= 1ms, got %s", timeout)
+	}
+	resp, err := rc.EmptyContinueResponse(phase)
+	if err != nil {
+		return nil, fmt.Errorf("override_message_timeout requires an active request phase: %w", err)
+	}
+	resp.OverrideMessageTimeout = durationpb.New(timeout)
+	return resp, nil
+}
+
+// OverrideMessageTimeout immediately sends an interim ProcessingResponse
+// asking Envoy to replace the current phase's message_timeout timer with
+// timeout (requires max_message_timeout >= timeout >= 1ms on Envoy's ext_proc
+// filter). It may be called at most once per phase before the processor
+// returns its phase response, and is a no-op when ObservabilityMode is true.
+//
+// Warning: ext_proc sits inline on Envoy's data-plane hot path. Extending
+// per-message timeouts holds downstream connections, Envoy filter state, and
+// any BUFFERED HTTP bodies in memory, sends an extra gRPC message on the
+// stream, and multiplies concurrent active streams under load (Little's Law).
+// Reserve this for rare slow-path operations and size ServerOptions.MaxConcurrentStreams,
+// Envoy cluster circuit breakers, and route timeouts accordingly.
+func (rc *RequestContext) OverrideMessageTimeout(timeout time.Duration) error {
+	if timeout < time.Millisecond {
+		return fmt.Errorf("override_message_timeout must be >= 1ms, got %s", timeout)
+	}
+	if rc.phase == REQUEST_PHASE_UNDETERMINED {
+		return errors.New("override_message_timeout requires an active request phase")
+	}
+	if rc.timeoutExtended {
+		return errors.New("override_message_timeout already sent in current phase")
+	}
+	if rc.ObservabilityMode {
+		rc.timeoutExtended = true
+		return nil
+	}
+	if rc.sendTimeoutOverride == nil {
+		return errors.New("override_message_timeout requires an active gRPC stream")
+	}
+	resp, err := rc.newTimeoutOverrideResponse(rc.phase, timeout)
+	if err != nil {
+		return err
+	}
+	if sendErr := rc.sendTimeoutOverride(resp); sendErr != nil {
+		return sendErr
+	}
+	rc.timeoutExtended = true
+	return nil
 }
 
 func (rc *RequestContext) GetResponse(phase int) (*extprocv3.ProcessingResponse, error) {

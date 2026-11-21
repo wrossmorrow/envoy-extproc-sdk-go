@@ -2,6 +2,7 @@ package extproc
 
 import (
 	"testing"
+	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
@@ -1121,6 +1122,103 @@ func TestDynamicMetadataAndAttributes(t *testing.T) {
 		}
 		if rc.Attributes["request.protocol"] != "HTTP/2" || rc.Attributes["xds.route_name"] != "r1" || rc.Attributes["response.code"] != float64(200) {
 			t.Errorf("merged Attributes = %+v", rc.Attributes)
+		}
+	})
+}
+
+func TestOverrideMessageTimeoutValidationAndPhases(t *testing.T) {
+	t.Run("validation_guards", func(t *testing.T) {
+		rc := newRequestContext()
+		rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		rc.sendTimeoutOverride = func(_ *extprocv3.ProcessingResponse) error { return nil }
+
+		for _, bad := range []time.Duration{0, -10 * time.Millisecond, 999 * time.Microsecond} {
+			if err := rc.OverrideMessageTimeout(bad); err == nil {
+				t.Errorf("OverrideMessageTimeout(%s) returned nil, want error", bad)
+			}
+		}
+
+		noPhase := newRequestContext()
+		noPhase.sendTimeoutOverride = func(_ *extprocv3.ProcessingResponse) error { return nil }
+		if err := noPhase.OverrideMessageTimeout(50 * time.Millisecond); err == nil {
+			t.Fatal("expected error for REQUEST_PHASE_UNDETERMINED")
+		}
+
+		noStream := newRequestContext()
+		noStream.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		if err := noStream.OverrideMessageTimeout(50 * time.Millisecond); err == nil {
+			t.Fatal("expected error when sendTimeoutOverride is nil")
+		}
+	})
+
+	t.Run("sends_valid_response_across_all_phases_and_resets", func(t *testing.T) {
+		phases := []int{
+			REQUEST_PHASE_REQUEST_HEADERS,
+			REQUEST_PHASE_REQUEST_BODY,
+			REQUEST_PHASE_REQUEST_TRAILERS,
+			REQUEST_PHASE_RESPONSE_HEADERS,
+			REQUEST_PHASE_RESPONSE_BODY,
+			REQUEST_PHASE_RESPONSE_TRAILERS,
+		}
+		var sent []*extprocv3.ProcessingResponse
+		rc := newRequestContext()
+		rc.sendTimeoutOverride = func(resp *extprocv3.ProcessingResponse) error {
+			sent = append(sent, resp)
+			return nil
+		}
+
+		for _, phase := range phases {
+			sent = nil
+			if resetErr := rc.ResetPhase(); resetErr != nil {
+				t.Fatal(resetErr)
+			}
+			rc.setPhase(phase)
+
+			if callErr := rc.OverrideMessageTimeout(500 * time.Millisecond); callErr != nil {
+				t.Fatalf("OverrideMessageTimeout(%s) = %v", RequestPhaseToString(phase), callErr)
+			}
+			if len(sent) != 1 {
+				t.Fatalf("phase %s sent %d interim responses, want 1", RequestPhaseToString(phase), len(sent))
+			}
+			if verr := sent[0].ValidateAll(); verr != nil {
+				t.Errorf("phase %s interim ValidateAll() = %v", RequestPhaseToString(phase), verr)
+			}
+			if got := sent[0].GetOverrideMessageTimeout().AsDuration(); got != 500*time.Millisecond {
+				t.Errorf("phase %s OverrideMessageTimeout = %s, want 500ms", RequestPhaseToString(phase), got)
+			}
+
+			if dupErr := rc.OverrideMessageTimeout(250 * time.Millisecond); dupErr == nil {
+				t.Errorf("expected error on duplicate OverrideMessageTimeout in %s", RequestPhaseToString(phase))
+			}
+		}
+
+		if resetErr := rc.ResetPhase(); resetErr != nil {
+			t.Fatal(resetErr)
+		}
+		rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		if afterResetErr := rc.OverrideMessageTimeout(200 * time.Millisecond); afterResetErr != nil {
+			t.Errorf("expected OverrideMessageTimeout to succeed after ResetPhase, got %v", afterResetErr)
+		}
+	})
+
+	t.Run("observability_mode_suppresses_send", func(t *testing.T) {
+		rc := newRequestContext()
+		called := false
+		rc.sendTimeoutOverride = func(_ *extprocv3.ProcessingResponse) error {
+			called = true
+			return nil
+		}
+		rc.setPhase(REQUEST_PHASE_REQUEST_HEADERS)
+		rc.ObservabilityMode = true
+
+		if err := rc.OverrideMessageTimeout(100 * time.Millisecond); err != nil {
+			t.Fatalf("OverrideMessageTimeout in observability mode = %v", err)
+		}
+		if called {
+			t.Fatal("sendTimeoutOverride should not be called in observability mode")
+		}
+		if err := rc.OverrideMessageTimeout(100 * time.Millisecond); err == nil {
+			t.Fatal("expected duplicate call in same phase to error even in observability mode")
 		}
 	})
 }

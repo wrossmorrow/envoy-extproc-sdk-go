@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproccfgv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
@@ -1172,6 +1173,7 @@ type phaseHookProcessor struct {
 	onReqBody  func(ctx *RequestContext) error
 	onRespHdrs func(ctx *RequestContext) error
 	onRespBody func(ctx *RequestContext) error
+	onError    func(ctx *RequestContext, phase int, err error)
 }
 
 func (p *phaseHookProcessor) GetName() string                { return p.name }
@@ -1206,8 +1208,12 @@ func (p *phaseHookProcessor) ProcessResponseBody(ctx *RequestContext, _ []byte) 
 func (p *phaseHookProcessor) ProcessResponseTrailers(ctx *RequestContext, _ AllHeaders) error {
 	return ctx.ContinueRequest()
 }
-func (p *phaseHookProcessor) ErrorHandler(_ *RequestContext, _ int, _ error) {}
-func (p *phaseHookProcessor) Close(_ int32) error                            { return nil }
+func (p *phaseHookProcessor) ErrorHandler(ctx *RequestContext, phase int, err error) {
+	if p.onError != nil {
+		p.onError(ctx, phase, err)
+	}
+}
+func (p *phaseHookProcessor) Close(_ int32) error { return nil }
 
 func TestProcessPhaseHeaderExistenceCarriesIntoBodyPhase(t *testing.T) {
 	t.Run("request_headers_mutations_carry_into_request_body", func(t *testing.T) {
@@ -1604,6 +1610,162 @@ func TestProcessStreamMetadataAndAttributes(t *testing.T) {
 		}
 		if stream.sent[2].GetDynamicMetadata() != nil {
 			t.Errorf("ResponseHeaders response unexpectedly carried DynamicMetadata from previous phase: %v", stream.sent[2].GetDynamicMetadata())
+		}
+	})
+}
+
+func TestProcessStreamOverrideMessageTimeout(t *testing.T) {
+	t.Run("sends_interim_timeout_override_then_phase_response", func(t *testing.T) {
+		proc := &phaseHookProcessor{
+			name: "timeout-override-ok",
+			opts: NewDefaultProcessingOptions(),
+			onReqHdrs: func(ctx *RequestContext) error {
+				if err := ctx.OverrideMessageTimeout(500 * time.Millisecond); err != nil {
+					return err
+				}
+				return ctx.AddHeader("x-after-extend", HeaderValue{RawValue: []byte("true")})
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		stream := newProcessStreamFake(
+			context.Background(),
+			newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")}),
+		)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error: %v", err)
+		}
+		if len(stream.sent) != 2 {
+			t.Fatalf("stream.sent = %d responses, want 2 (interim timeout + final)", len(stream.sent))
+		}
+		if got := stream.sent[0].GetOverrideMessageTimeout().AsDuration(); got != 500*time.Millisecond {
+			t.Errorf("stream.sent[0] OverrideMessageTimeout = %s, want 500ms", got)
+		}
+		if stream.sent[1].GetOverrideMessageTimeout() != nil {
+			t.Errorf("stream.sent[1] unexpectedly carried OverrideMessageTimeout: %v", stream.sent[1].GetOverrideMessageTimeout())
+		}
+		setHdrs := stream.sent[1].GetRequestHeaders().GetResponse().GetHeaderMutation().GetSetHeaders()
+		if len(setHdrs) != 1 || setHdrs[0].GetHeader().GetKey() != "x-after-extend" {
+			t.Errorf("final RequestHeaders SetHeaders = %v, want [x-after-extend]", setHdrs)
+		}
+	})
+
+	t.Run("duplicate_call_in_same_phase_records_phase_error", func(t *testing.T) {
+		proc := &phaseHookProcessor{
+			name: "timeout-override-dup",
+			opts: &ProcessingOptions{AbortOnProcessorFailure: false},
+			onReqHdrs: func(ctx *RequestContext) error {
+				if err := ctx.OverrideMessageTimeout(500 * time.Millisecond); err != nil {
+					return err
+				}
+				return ctx.OverrideMessageTimeout(250 * time.Millisecond)
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		stream := newProcessStreamFake(
+			context.Background(),
+			newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")}),
+		)
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error %v, want nil when AbortOnProcessorFailure is false", err)
+		}
+		if len(stream.sent) != 2 {
+			t.Fatalf("stream.sent = %d responses, want 2", len(stream.sent))
+		}
+		if got := stream.sent[0].GetOverrideMessageTimeout().AsDuration(); got != 500*time.Millisecond {
+			t.Errorf("stream.sent[0] OverrideMessageTimeout = %s, want 500ms", got)
+		}
+		if stream.sent[1].GetOverrideMessageTimeout() != nil {
+			t.Errorf("stream.sent[1] unexpectedly carried OverrideMessageTimeout")
+		}
+
+		families := gatherRegisteredMetrics(t, s.metrics)
+		if got := counterValue(t, families, "extproc_phase_errors_total"); got != 1 {
+			t.Errorf("extproc_phase_errors_total = %v, want 1", got)
+		}
+		if got := counterValue(t, families, "extproc_errored_streams"); got != 1 {
+			t.Errorf("extproc_errored_streams = %v, want 1", got)
+		}
+	})
+
+	t.Run("send_cancellation_during_interim_override_is_graceful", func(t *testing.T) {
+		var errCalled bool
+		var errPhase int
+		var errSeen error
+		proc := &phaseHookProcessor{
+			name: "timeout-override-cancel",
+			opts: &ProcessingOptions{AbortOnProcessorFailure: true},
+			onReqHdrs: func(ctx *RequestContext) error {
+				return ctx.OverrideMessageTimeout(500 * time.Millisecond)
+			},
+			onError: func(_ *RequestContext, phase int, err error) {
+				errCalled = true
+				errPhase = phase
+				errSeen = err
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		stream := newProcessStreamFake(
+			context.Background(),
+			newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")}),
+		)
+		stream.sendErrs = []error{status.Error(codes.Canceled, "client gone")}
+
+		if err := s.Process(stream); err != nil {
+			t.Fatalf("Process returned error %v, want nil on send cancellation", err)
+		}
+		if !errCalled || errPhase != REQUEST_PHASE_REQUEST_HEADERS || !isStreamCancelled(errSeen) {
+			t.Errorf("ErrorHandler = (called=%v phase=%d err=%v), want canceled in REQUEST_HEADERS", errCalled, errPhase, errSeen)
+		}
+		families := gatherRegisteredMetrics(t, s.metrics)
+		if got := counterValue(t, families, "extproc_errored_streams"); got != 0 {
+			t.Errorf("extproc_errored_streams = %v, want 0", got)
+		}
+		if got := counterValue(t, families, "extproc_phase_errors_total"); got != 0 {
+			t.Errorf("extproc_phase_errors_total = %v, want 0", got)
+		}
+		if got := counterValue(t, families, "extproc_response_send_errors"); got != 0 {
+			t.Errorf("extproc_response_send_errors = %v, want 0", got)
+		}
+	})
+
+	t.Run("send_failure_during_interim_override_increments_send_errors", func(t *testing.T) {
+		var errCalled bool
+		var errPhase int
+		proc := &phaseHookProcessor{
+			name: "timeout-override-send-err",
+			opts: NewDefaultProcessingOptions(),
+			onReqHdrs: func(ctx *RequestContext) error {
+				return ctx.OverrideMessageTimeout(500 * time.Millisecond)
+			},
+			onError: func(_ *RequestContext, phase int, _ error) {
+				errCalled = true
+				errPhase = phase
+			},
+		}
+		s := newTestServer(t, proc, proc.opts)
+		stream := newProcessStreamFake(
+			context.Background(),
+			newHeadersRequest("request", true, &corev3.HeaderValue{Key: ":method", RawValue: []byte("GET")}),
+		)
+		stream.sendErrs = []error{status.Error(codes.Unavailable, "transport closed")}
+
+		if err := s.Process(stream); err == nil {
+			t.Fatal("expected Process to return error on transport failure")
+		}
+		if !errCalled || errPhase != REQUEST_PHASE_REQUEST_HEADERS {
+			t.Errorf("ErrorHandler = (called=%v phase=%d), want REQUEST_HEADERS", errCalled, errPhase)
+		}
+		families := gatherRegisteredMetrics(t, s.metrics)
+		if got := counterValue(t, families, "extproc_response_send_errors"); got != 1 {
+			t.Errorf("extproc_response_send_errors = %v, want 1", got)
+		}
+		if got := counterValue(t, families, "extproc_errored_streams"); got != 1 {
+			t.Errorf("extproc_errored_streams = %v, want 1", got)
+		}
+		if got := counterValue(t, families, "extproc_phase_errors_total"); got != 0 {
+			t.Errorf("extproc_phase_errors_total = %v, want 0", got)
 		}
 	})
 }
