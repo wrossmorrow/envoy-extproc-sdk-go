@@ -16,7 +16,7 @@ Verification in this repository is intentionally split into two tiers:
 | Go Toolchain (`go.mod`) | `go 1.25.0` | Minimum module version in [go.mod](go.mod) |
 | `go-control-plane/envoy` (`go.mod`) | `v1.37.0` | Compile-time `ext_proc` v3 protobuf definitions |
 | `google.golang.org/grpc` (`go.mod`) | `v1.83.0` | Bidirectional gRPC stream server + health |
-| Routine CI Envoy (`test/compose.yaml`) | `v1.40-latest` | Default tag in [test/compose.yaml](test/compose.yaml); override with `ENVOY_VERSION` |
+| Routine CI & Examples Envoy ([test/compose.yaml](test/compose.yaml), [examples/compose.yaml](examples/compose.yaml)) | `envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}` | Default tag in [test/compose.yaml](test/compose.yaml) and [examples/compose.yaml](examples/compose.yaml), synced with `default` in [conformance/envoy-versions.json](conformance/envoy-versions.json); override with `ENVOY_VERSION` |
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]

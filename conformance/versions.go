@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -148,4 +149,79 @@ func SyncEnvoyVersionsFromEOL(eolJSON []byte, now time.Time, canary []string) (*
 		Supported: supported,
 		Canary:    canaryCopy,
 	}, nil
+}
+
+var (
+	composeEnvoyImagePattern          = regexp.MustCompile(`envoyproxy/envoy:\$\{ENVOY_VERSION:-[^}]+\}`)
+	conformanceDefaultEnvPattern      = regexp.MustCompile("defaults to `ENVOY_VERSION=[^`]+`")
+	conformanceOverrideExamplePattern = regexp.MustCompile("ENVOY_VERSION=[^\\s`]+ just integration-test")
+	conformanceRecipeExamplePattern   = regexp.MustCompile(`just conformance-version v[0-9]+\.[0-9]+-latest`)
+	conformanceMatrixRangePattern     = regexp.MustCompile("\\| `v[0-9]+\\.[0-9]+` – `v[0-9]+\\.[0-9]+` \\+ `dev` \\|")
+	justfileVersionPattern            = regexp.MustCompile(`conformance-version envoy_version="[^"]+"`)
+	justfileCommentExamplePattern     = regexp.MustCompile(`\(e\.g\. v[0-9]+\.[0-9]+-latest\)`)
+)
+
+// SyncComposeYAML rewrites default ENVOY_VERSION image tags in a Compose file
+// to match m.Default.
+func SyncComposeYAML(content string, m *EnvoyVersionManifest) string {
+	if m == nil || m.Default == "" {
+		return content
+	}
+	return composeEnvoyImagePattern.ReplaceAllLiteralString(
+		content,
+		"envoyproxy/envoy:${ENVOY_VERSION:-"+m.Default+"}",
+	)
+}
+
+// SyncConformanceDoc updates Envoy default version references and the
+// supported minor version range in CONFORMANCE.md to match m.
+func SyncConformanceDoc(content string, m *EnvoyVersionManifest) string {
+	if m == nil {
+		return content
+	}
+	updated := content
+	if m.Default != "" {
+		updated = composeEnvoyImagePattern.ReplaceAllLiteralString(
+			updated,
+			"envoyproxy/envoy:${ENVOY_VERSION:-"+m.Default+"}",
+		)
+		updated = conformanceDefaultEnvPattern.ReplaceAllLiteralString(
+			updated,
+			"defaults to `ENVOY_VERSION="+m.Default+"`",
+		)
+		updated = conformanceOverrideExamplePattern.ReplaceAllLiteralString(
+			updated,
+			"ENVOY_VERSION="+m.Default+" just integration-test",
+		)
+		updated = conformanceRecipeExamplePattern.ReplaceAllLiteralString(
+			updated,
+			"just conformance-version "+m.Default,
+		)
+	}
+	if len(m.Supported) > 0 {
+		firstCycle := strings.TrimSuffix(m.Supported[0], "-latest")
+		lastCycle := strings.TrimSuffix(m.Supported[len(m.Supported)-1], "-latest")
+		updated = conformanceMatrixRangePattern.ReplaceAllLiteralString(
+			updated,
+			"| `"+firstCycle+"` – `"+lastCycle+"` + `dev` |",
+		)
+	}
+	return updated
+}
+
+// SyncJustfile updates the conformance-version default argument and comment
+// example in justfile to match m.Default.
+func SyncJustfile(content string, m *EnvoyVersionManifest) string {
+	if m == nil || m.Default == "" {
+		return content
+	}
+	updated := justfileVersionPattern.ReplaceAllLiteralString(
+		content,
+		`conformance-version envoy_version="`+m.Default+`"`,
+	)
+	updated = justfileCommentExamplePattern.ReplaceAllLiteralString(
+		updated,
+		"(e.g. "+m.Default+")",
+	)
+	return updated
 }

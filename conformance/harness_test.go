@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -67,6 +69,109 @@ func TestSyncEnvoyVersionsFromEOL(t *testing.T) {
 	}
 	if !slices.Equal(got.Canary, []string{"dev"}) {
 		t.Errorf("Canary = %v, want [dev]", got.Canary)
+	}
+}
+
+func TestComposeDocsAndJustfileMatchDefaultEnvoyVersion(t *testing.T) {
+	m, err := LoadEnvoyVersions()
+	if err != nil {
+		t.Fatalf("LoadEnvoyVersions() error: %v", err)
+	}
+
+	readRepoFile := func(elems ...string) string {
+		t.Helper()
+		path := filepath.Join(append([]string{".."}, elems...)...)
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", path, readErr)
+		}
+		return string(raw)
+	}
+
+	wantImage := "envoyproxy/envoy:${ENVOY_VERSION:-" + m.Default + "}"
+	for _, composeRel := range [][]string{
+		{"examples", "compose.yaml"},
+		{"test", "compose.yaml"},
+	} {
+		content := readRepoFile(composeRel...)
+		if !strings.Contains(content, wantImage) {
+			t.Errorf("%s missing %q", filepath.Join(composeRel...), wantImage)
+		}
+		if synced := SyncComposeYAML(content, m); synced != content {
+			t.Errorf("SyncComposeYAML(%s) is not a no-op; file is out of sync with envoy-versions.json", filepath.Join(composeRel...))
+		}
+	}
+
+	conformanceDoc := readRepoFile("CONFORMANCE.md")
+	for _, needle := range []string{
+		wantImage,
+		"defaults to `ENVOY_VERSION=" + m.Default + "`",
+		"ENVOY_VERSION=" + m.Default + " just integration-test",
+		"just conformance-version " + m.Default,
+	} {
+		if !strings.Contains(conformanceDoc, needle) {
+			t.Errorf("CONFORMANCE.md missing %q", needle)
+		}
+	}
+	if synced := SyncConformanceDoc(conformanceDoc, m); synced != conformanceDoc {
+		t.Errorf("SyncConformanceDoc(CONFORMANCE.md) is not a no-op; CONFORMANCE.md is out of sync with envoy-versions.json")
+	}
+
+	justfileContent := readRepoFile("justfile")
+	wantJustDefault := `conformance-version envoy_version="` + m.Default + `"`
+	if !strings.Contains(justfileContent, wantJustDefault) {
+		t.Errorf("justfile missing %q", wantJustDefault)
+	}
+	if synced := SyncJustfile(justfileContent, m); synced != justfileContent {
+		t.Errorf("SyncJustfile(justfile) is not a no-op; justfile is out of sync with envoy-versions.json")
+	}
+}
+
+func TestSyncHelpersRewriteComposeDocsAndJustfile(t *testing.T) {
+	m := &EnvoyVersionManifest{
+		Default:   "v1.40-latest",
+		Supported: []string{"v1.37-latest", "v1.38-latest", "v1.39-latest", "v1.40-latest"},
+		Canary:    []string{"dev"},
+	}
+
+	oldCompose := "  envoy:\n    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}\n"
+	wantCompose := "  envoy:\n    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}\n"
+	gotCompose := SyncComposeYAML(oldCompose, m)
+	if gotCompose != wantCompose {
+		t.Errorf("SyncComposeYAML() = %q, want %q", gotCompose, wantCompose)
+	}
+	if again := SyncComposeYAML(gotCompose, m); again != wantCompose {
+		t.Errorf("SyncComposeYAML() second pass = %q, want %q", again, wantCompose)
+	}
+
+	oldDoc := "| Routine CI Envoy | `envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}` | note |\n" +
+		"| Multi-Version Matrix | `v1.35` – `v1.38` + `dev` | notes |\n" +
+		"Run (defaults to `ENVOY_VERSION=v1.26-latest`):\n" +
+		"ENVOY_VERSION=v1.26-latest just integration-test\n" +
+		"just conformance-version v1.26-latest\n"
+	wantDoc := "| Routine CI Envoy | `envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}` | note |\n" +
+		"| Multi-Version Matrix | `v1.37` – `v1.40` + `dev` | notes |\n" +
+		"Run (defaults to `ENVOY_VERSION=v1.40-latest`):\n" +
+		"ENVOY_VERSION=v1.40-latest just integration-test\n" +
+		"just conformance-version v1.40-latest\n"
+	gotDoc := SyncConformanceDoc(oldDoc, m)
+	if gotDoc != wantDoc {
+		t.Errorf("SyncConformanceDoc() =\n%s\nwant:\n%s", gotDoc, wantDoc)
+	}
+	if again := SyncConformanceDoc(gotDoc, m); again != wantDoc {
+		t.Errorf("SyncConformanceDoc() second pass =\n%s\nwant:\n%s", again, wantDoc)
+	}
+
+	oldJust := "# Run the Envoy conformance suite against a specific Envoy image tag (e.g. v1.26-latest).\n" +
+		"conformance-version envoy_version=\"v1.26-latest\" *flags=\"-v\":\n"
+	wantJust := "# Run the Envoy conformance suite against a specific Envoy image tag (e.g. v1.40-latest).\n" +
+		"conformance-version envoy_version=\"v1.40-latest\" *flags=\"-v\":\n"
+	gotJust := SyncJustfile(oldJust, m)
+	if gotJust != wantJust {
+		t.Errorf("SyncJustfile() = %q, want %q", gotJust, wantJust)
+	}
+	if again := SyncJustfile(gotJust, m); again != wantJust {
+		t.Errorf("SyncJustfile() second pass = %q, want %q", again, wantJust)
 	}
 }
 
