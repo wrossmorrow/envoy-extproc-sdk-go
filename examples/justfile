@@ -19,8 +19,8 @@ format:
     go fmt *.go
 
 # run unit tests code
-unit-test: 
-    echo "TBD"
+unit-test:
+    go test -v -race ./...
 
 # run integration tests on code
 integration-test: 
