@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"hash"
 	"log"
 
@@ -18,7 +19,11 @@ func getHasher(ctx *ep.RequestContext) (hash.Hash, error) {
 	if err != nil {
 		return nil, err
 	}
-	return val.(hash.Hash), nil
+	h, ok := val.(hash.Hash)
+	if !ok || h == nil {
+		return nil, errors.New("hasher value is invalid")
+	}
+	return h, nil
 }
 
 func getDigest(ctx *ep.RequestContext) (string, error) {
@@ -26,7 +31,20 @@ func getDigest(ctx *ep.RequestContext) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return val.(string), nil
+	d, ok := val.(string)
+	if !ok {
+		return "", errors.New("digest value is invalid")
+	}
+	return d, nil
+}
+
+func maybeAddDigestHeader(ctx *ep.RequestContext) {
+	if !ctx.EndOfStream {
+		return
+	}
+	if digest, err := getDigest(ctx); err == nil && digest != "" {
+		_ = ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
+	}
 }
 
 func (s *digestRequestProcessor) GetName() string {
@@ -39,28 +57,32 @@ func (s *digestRequestProcessor) GetOptions() *ep.ProcessingOptions {
 
 func (s *digestRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
 	hasher := sha256.New()
-	ctx.SetValue("hasher", hasher)
+	_ = ctx.SetValue("hasher", hasher)
 
 	hasher.Write([]byte(ctx.Method + ":" + ctx.Path)) // method:path
 
 	if ctx.EndOfStream {
 		digest := hex.EncodeToString(hasher.Sum(nil))
-		ctx.SetValue("digest", digest)
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
+		_ = ctx.SetValue("digest", digest)
+		_ = ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
 	}
 
 	return ctx.ContinueRequest()
 }
 
 func (s *digestRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
-	hasher, _ := getHasher(ctx)
+	hasher, err := getHasher(ctx)
+	if err != nil || hasher == nil {
+		hasher = sha256.New()
+		_ = ctx.SetValue("hasher", hasher)
+	}
 	hasher.Write([]byte(":"))
 	hasher.Write(body)
 
 	if ctx.EndOfStream {
 		digest := hex.EncodeToString(hasher.Sum(nil))
-		ctx.SetValue("digest", digest)
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
+		_ = ctx.SetValue("digest", digest)
+		_ = ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
 	}
 	return ctx.ContinueRequest()
 }
@@ -70,18 +92,12 @@ func (s *digestRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, 
 }
 
 func (s *digestRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
-	if ctx.EndOfStream {
-		digest, _ := getDigest(ctx)
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
-	}
+	maybeAddDigestHeader(ctx)
 	return ctx.ContinueRequest()
 }
 
 func (s *digestRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
-	if ctx.EndOfStream {
-		digest, _ := getDigest(ctx)
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
-	}
+	maybeAddDigestHeader(ctx)
 	return ctx.ContinueRequest()
 }
 

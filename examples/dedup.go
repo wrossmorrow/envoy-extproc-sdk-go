@@ -3,15 +3,19 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"hash"
 	"log"
+	"sync"
 
 	ep "github.com/wrossmorrow/envoy-extproc-sdk-go"
 )
 
-var cache map[string]bool
+const dedupAcquiredDigestKey = "dedup_acquired_digest"
 
 type dedupRequestProcessor struct {
-	opts *ep.ProcessingOptions
+	opts     *ep.ProcessingOptions
+	mu       sync.Mutex
+	inFlight map[string]struct{}
 }
 
 func dedupable(ctx *ep.RequestContext) bool {
@@ -23,26 +27,65 @@ func dedupable(ctx *ep.RequestContext) bool {
 	}
 }
 
-func cacheRequest(_ *ep.RequestContext, digest string) {
-	if cache == nil {
-		cache = make(map[string]bool)
+func (s *dedupRequestProcessor) tryAcquire(ctx *ep.RequestContext, digest string) bool {
+	s.mu.Lock()
+	if s.inFlight == nil {
+		s.inFlight = make(map[string]struct{})
 	}
-	cache[digest] = true
-}
-
-func uncacheRequest(digest string) {
-	if isRequestCached(digest) {
-		delete(cache, digest)
-	}
-}
-
-func isRequestCached(digest string) bool {
-	if cache == nil {
-		cache = make(map[string]bool)
+	if _, exists := s.inFlight[digest]; exists {
+		s.mu.Unlock()
 		return false
 	}
-	_, cached := cache[digest]
-	return cached
+	s.inFlight[digest] = struct{}{}
+	s.mu.Unlock()
+
+	if ctx != nil {
+		_ = ctx.SetValue(dedupAcquiredDigestKey, digest)
+	}
+	return true
+}
+
+func (s *dedupRequestProcessor) releaseOwned(ctx *ep.RequestContext) {
+	if ctx == nil {
+		return
+	}
+	val, err := ctx.GetValue(dedupAcquiredDigestKey)
+	if err != nil {
+		return
+	}
+	digest, ok := val.(string)
+	if !ok || digest == "" {
+		return
+	}
+	// Clear stream ownership before deleting so a later phase or duplicate
+	// release cannot evict a slot acquired by a subsequent request.
+	_ = ctx.SetValue(dedupAcquiredDigestKey, "")
+
+	s.mu.Lock()
+	delete(s.inFlight, digest)
+	s.mu.Unlock()
+}
+
+func (s *dedupRequestProcessor) finishRequestDigest(ctx *ep.RequestContext, hasher hash.Hash) error {
+	digest := hex.EncodeToString(hasher.Sum(nil))
+	_ = ctx.SetValue("digest", digest)
+	_ = ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
+	if !ctx.ObservabilityMode && dedupable(ctx) {
+		if !s.tryAcquire(ctx, digest) {
+			return ctx.CancelRequest(409, map[string]ep.HeaderValue{}, "")
+		}
+	}
+	return ctx.ContinueRequest()
+}
+
+func (s *dedupRequestProcessor) handleResponsePhase(ctx *ep.RequestContext) error {
+	s.releaseOwned(ctx)
+	if ctx.EndOfStream {
+		if digest, err := getDigest(ctx); err == nil && digest != "" {
+			_ = ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
+		}
+	}
+	return ctx.ContinueRequest()
 }
 
 func (s *dedupRequestProcessor) GetName() string {
@@ -55,44 +98,27 @@ func (s *dedupRequestProcessor) GetOptions() *ep.ProcessingOptions {
 
 func (s *dedupRequestProcessor) ProcessRequestHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
 	hasher := sha256.New()
-	ctx.SetValue("hasher", hasher)
+	_ = ctx.SetValue("hasher", hasher)
 
 	hasher.Write([]byte(ctx.Method + ":" + ctx.Path)) // method:path
 
 	if ctx.EndOfStream {
-		digest := hex.EncodeToString(hasher.Sum(nil))
-		ctx.SetValue("digest", digest)
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
-		if dedupable(ctx) {
-			if isRequestCached(digest) {
-				return ctx.CancelRequest(409, map[string]ep.HeaderValue{}, "")
-
-			} else {
-				cacheRequest(ctx, digest)
-			}
-		}
+		return s.finishRequestDigest(ctx, hasher)
 	}
 
 	return ctx.ContinueRequest()
 }
 
 func (s *dedupRequestProcessor) ProcessRequestBody(ctx *ep.RequestContext, body []byte) error {
-
-	hasher, _ := getHasher(ctx)
+	hasher, err := getHasher(ctx)
+	if err != nil || hasher == nil {
+		hasher = sha256.New()
+		_ = ctx.SetValue("hasher", hasher)
+	}
 	hasher.Write([]byte(":"))
 	hasher.Write(body)
 	if ctx.EndOfStream {
-		digest := hex.EncodeToString(hasher.Sum(nil))
-		ctx.SetValue("digest", digest)
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
-		if dedupable(ctx) {
-			if isRequestCached(digest) {
-				return ctx.CancelRequest(409, map[string]ep.HeaderValue{}, "")
-
-			} else {
-				cacheRequest(ctx, digest)
-			}
-		}
+		return s.finishRequestDigest(ctx, hasher)
 	}
 	return ctx.ContinueRequest()
 }
@@ -102,28 +128,20 @@ func (s *dedupRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, t
 }
 
 func (s *dedupRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
-	digest, _ := getDigest(ctx)
-	uncacheRequest(digest)
-	if ctx.EndOfStream {
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
-	}
-	return ctx.ContinueRequest()
+	return s.handleResponsePhase(ctx)
 }
 
 func (s *dedupRequestProcessor) ProcessResponseBody(ctx *ep.RequestContext, body []byte) error {
-	digest, _ := getDigest(ctx)
-	uncacheRequest(digest)
-	if ctx.EndOfStream {
-		ctx.AddHeader("x-extproc-request-digest", ep.HeaderValue{RawValue: []byte(digest)})
-	}
-	return ctx.ContinueRequest()
+	return s.handleResponsePhase(ctx)
 }
 
 func (s *dedupRequestProcessor) ProcessResponseTrailers(ctx *ep.RequestContext, trailers ep.AllHeaders) error {
+	s.releaseOwned(ctx)
 	return ctx.ContinueRequest()
 }
 
 func (s *dedupRequestProcessor) ErrorHandler(ctx *ep.RequestContext, phase int, err error) {
+	s.releaseOwned(ctx)
 	log.Printf("Error in phase %s: %v", ep.RequestPhaseToString(phase), err)
 }
 
@@ -133,6 +151,11 @@ func (s *dedupRequestProcessor) Close(gracePeriodSeconds int32) error {
 }
 
 func (s *dedupRequestProcessor) Init(opts *ep.ProcessingOptions, nonFlagArgs []string) error {
+	s.mu.Lock()
 	s.opts = opts
+	if s.inFlight == nil {
+		s.inFlight = make(map[string]struct{})
+	}
+	s.mu.Unlock()
 	return nil
 }

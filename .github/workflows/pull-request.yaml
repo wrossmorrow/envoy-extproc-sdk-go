@@ -36,6 +36,7 @@ jobs:
         run: |
           go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.49.0
           go vet -vettool=$(go env GOPATH)/bin/shadow ./...
+          (cd examples && go vet -vettool=$(go env GOPATH)/bin/shadow ./...)
           (cd conformance && go vet -vettool=$(go env GOPATH)/bin/shadow ./...)
   unit-test:
     runs-on: ubuntu-latest
@@ -51,7 +52,9 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
       - name: Unit tests
-        run: go test -v -race ./...
+        run: |
+          go test -v -race ./...
+          (cd examples && go test -v -race ./...)
   integration-test:
     runs-on: ubuntu-latest
     steps:

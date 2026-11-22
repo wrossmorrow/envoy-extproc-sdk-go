@@ -34,8 +34,11 @@ func (s *dataRequestProcessor) ProcessRequestTrailers(ctx *ep.RequestContext, tr
 }
 
 func (s *dataRequestProcessor) ProcessResponseHeaders(ctx *ep.RequestContext, headers ep.AllHeaders) error {
-	id, _ := ctx.GetValue("customId")
-	ctx.AddHeader("x-extproc-custom-data", ep.HeaderValue{RawValue: []byte((id.(uuid.UUID)).String())})
+	if id, err := ctx.GetValue("customId"); err == nil {
+		if u, ok := id.(uuid.UUID); ok {
+			_ = ctx.AddHeader("x-extproc-custom-data", ep.HeaderValue{RawValue: []byte(u.String())})
+		}
+	}
 	return ctx.ContinueRequest() // returns an error if response malformed
 }
 
