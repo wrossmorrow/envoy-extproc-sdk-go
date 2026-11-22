@@ -21,6 +21,13 @@ jobs:
       - name: Sync envoy-versions.json
         working-directory: conformance
         run: go run ./cmd/sync-versions --write envoy-versions.json
+      - name: Validate examples and test envoy.yaml against synced default Envoy version
+        run: |
+          default_envoy=$(jq -r '.default' conformance/envoy-versions.json)
+          docker run --rm -v "$PWD/examples/envoy.yaml:/etc/envoy/envoy.yaml:ro" \
+            "envoyproxy/envoy:${default_envoy}" --mode validate -c /etc/envoy/envoy.yaml
+          docker run --rm -v "$PWD/test/envoy.yaml:/etc/envoy/envoy.yaml:ro" \
+            "envoyproxy/envoy:${default_envoy}" --mode validate -c /etc/envoy/envoy.yaml
       - name: Create pull request
         uses: peter-evans/create-pull-request@v8
         with:
@@ -28,5 +35,11 @@ jobs:
           commit-message: "chore(conformance): sync supported Envoy versions"
           title: "chore(conformance): sync supported Envoy versions"
           body: |
-            Automated weekly sync of `conformance/envoy-versions.json` against active Envoy release cycles from `https://endoflife.date/api/envoy.json`.
+            Automated weekly sync of `conformance/envoy-versions.json`, Compose defaults (`examples/compose.yaml`, `test/compose.yaml`), `CONFORMANCE.md`, and `justfile` against active Envoy release cycles from `https://endoflife.date/api/envoy.json`.
+          add-paths: |
+            conformance/envoy-versions.json
+            examples/compose.yaml
+            test/compose.yaml
+            CONFORMANCE.md
+            justfile
           delete-branch: true

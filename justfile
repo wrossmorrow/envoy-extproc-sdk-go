@@ -103,7 +103,7 @@ conformance *flags="-v":
     cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 go test {{flags}} ./...
 
 # Run the Envoy conformance suite against a specific Envoy image tag (e.g. v1.40-latest).
-conformance-version envoy_version *flags="-v":
+conformance-version envoy_version="v1.40-latest" *flags="-v":
     cd conformance && CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION={{envoy_version}} go test {{flags}} ./...
 
 # Run the Envoy conformance suite sequentially across every supported Envoy version in conformance/envoy-versions.json.
@@ -126,7 +126,7 @@ conformance-report *flags="-race -count=1":
     done
     (cd conformance && go run ./cmd/report --results-dir . --strict --markdown-out conformance-report.md --json-out conformance-summary.json --update-conformance-md ../CONFORMANCE.md)
 
-# Sync conformance/envoy-versions.json with active Envoy releases from endoflife.date.
+# Sync conformance/envoy-versions.json, Compose defaults, CONFORMANCE.md, and justfile with active Envoy releases from endoflife.date.
 sync-envoy-versions:
     cd conformance && go run ./cmd/sync-versions --write envoy-versions.json
 

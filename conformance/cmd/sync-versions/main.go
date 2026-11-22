@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/wrossmorrow/envoy-extproc-sdk-go/conformance"
@@ -77,4 +78,59 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("synced %s: default=%s supported=%v canary=%v\n", *writePath, manifest.Default, manifest.Supported, manifest.Canary)
+
+	manifestPath, absErr := filepath.Abs(*writePath)
+	if absErr != nil {
+		fmt.Fprintf(os.Stderr, "sync-envoy-versions: resolve path %s: %v\n", *writePath, absErr)
+		os.Exit(1)
+	}
+	repoRoot := filepath.Dir(filepath.Dir(manifestPath))
+	if syncErr := syncRepoFiles(repoRoot, manifest); syncErr != nil {
+		fmt.Fprintf(os.Stderr, "sync-envoy-versions: %v\n", syncErr)
+		os.Exit(1)
+	}
+}
+
+func syncRepoFiles(repoRoot string, m *conformance.EnvoyVersionManifest) error {
+	targets := []struct {
+		relPath   string
+		transform func(string, *conformance.EnvoyVersionManifest) string
+	}{
+		{relPath: filepath.Join("examples", "compose.yaml"), transform: conformance.SyncComposeYAML},
+		{relPath: filepath.Join("test", "compose.yaml"), transform: conformance.SyncComposeYAML},
+		{relPath: "CONFORMANCE.md", transform: conformance.SyncConformanceDoc},
+		{relPath: "justfile", transform: conformance.SyncJustfile},
+	}
+	for _, target := range targets {
+		if err := syncRepoFile(repoRoot, target.relPath, target.transform, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func syncRepoFile(
+	repoRoot string,
+	relPath string,
+	transform func(string, *conformance.EnvoyVersionManifest) string,
+	m *conformance.EnvoyVersionManifest,
+) error {
+	path := filepath.Join(repoRoot, relPath)
+	raw, readErr := os.ReadFile(path)
+	if os.IsNotExist(readErr) {
+		return nil
+	}
+	if readErr != nil {
+		return fmt.Errorf("read %s: %w", path, readErr)
+	}
+	original := string(raw)
+	updated := transform(original, m)
+	if updated == original {
+		return nil
+	}
+	if writeErr := os.WriteFile(path, []byte(updated), 0o644); writeErr != nil {
+		return fmt.Errorf("write %s: %w", path, writeErr)
+	}
+	fmt.Printf("updated %s\n", relPath)
+	return nil
 }
