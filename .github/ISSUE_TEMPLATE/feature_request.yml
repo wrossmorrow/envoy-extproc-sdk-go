@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new SDK capability, API improvement, or Envoy ext_proc v3 feature
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to build, and what limitation are you hitting?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behavior
+      description: How would you expect to use this via `RequestProcessor`, `RequestContext`, or `ProcessingOptions`?
+    validations:
+      required: true
+
+  - type: input
+    id: envoy_spec
+    attributes:
+      label: Envoy `ext_proc` v3 reference (optional)
+      description: Link to relevant Envoy docs/proto fields or Envoy version introducing the feature (check CONFORMANCE.md first).
+      placeholder: "e.g. envoy.service.ext_proc.v3.ProcessingResponse..."
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds considered

@@ -1,0 +1,17 @@
+name: Question
+description: Ask a question about using the SDK or integrating with Envoy
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Describe what you're trying to do and where you're stuck.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context (optional)
+      description: SDK version, Envoy version, relevant `ext_proc` config, or code snippet.

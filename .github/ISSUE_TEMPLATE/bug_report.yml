@@ -1,0 +1,78 @@
+name: Bug report
+description: Report unexpected behavior, panics, or Envoy interop issues
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: input
+    id: sdk_version
+    attributes:
+      label: SDK version
+      placeholder: "e.g. v0.4.0 or commit SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: envoy_version
+    attributes:
+      label: Envoy version
+      description: Output of `envoy --version` or container tag (see CONFORMANCE.md for tested versions).
+      placeholder: "e.g. v1.40-latest, 1.38.2"
+    validations:
+      required: true
+
+  - type: input
+    id: go_version
+    attributes:
+      label: Go version
+      placeholder: "e.g. go1.25.0"
+
+  - type: checkboxes
+    id: phases
+    attributes:
+      label: Affected phase(s) / area
+      options:
+        - label: RequestHeaders
+        - label: RequestBody
+        - label: RequestTrailers
+        - label: ResponseHeaders
+        - label: ResponseBody
+        - label: ResponseTrailers
+        - label: Server / Lifecycle / Metrics / Health
+
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Downstream / upstream protocol
+      options:
+        - HTTP/1.1
+        - HTTP/2 (h2 / h2c)
+        - Both / Mixed
+        - Unknown
+
+  - type: textarea
+    id: envoy_config
+    attributes:
+      label: Relevant Envoy `ext_proc` configuration
+      description: Include `processing_mode`, `observability_mode`, `allow_mode_override`, `message_timeout`, `failure_mode_allow`, `metadata_options`, etc.
+      render: yaml
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Steps, `RequestProcessor` snippet, or test case that reproduces the issue.
+      render: go
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack traces
+      description: SDK logs and/or Envoy debug logs (`--component-log-level ext_proc:debug`).
+      render: text
