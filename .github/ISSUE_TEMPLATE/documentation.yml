@@ -1,0 +1,30 @@
+name: Documentation / Examples
+description: Report missing, unclear, or outdated docs, GoDoc, or examples
+labels: ["documentation"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Documentation area
+      options:
+        - README.md
+        - GoDoc / API comments
+        - Examples (examples/)
+        - MIGRATION.md
+        - CONFORMANCE.md
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is missing, unclear, or incorrect?
+      description: Include links or file paths if applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement (optional)

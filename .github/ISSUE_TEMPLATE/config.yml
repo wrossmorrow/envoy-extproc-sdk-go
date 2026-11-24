@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a Security Vulnerability
+    url: https://github.com/wrossmorrow/envoy-extproc-sdk-go/security/advisories/new
+    about: Privately report a security vulnerability directly to the maintainers instead of opening a public issue.
+  - name: Supported Envoy Versions & Feature Matrix
+    url: https://github.com/wrossmorrow/envoy-extproc-sdk-go/blob/main/CONFORMANCE.md
+    about: Check current Envoy version compatibility and ext_proc v3 feature coverage before filing.
+  - name: Upgrade & Migration Notes
+    url: https://github.com/wrossmorrow/envoy-extproc-sdk-go/blob/main/MIGRATION.md
+    about: Breaking changes and runtime behavior notes across SDK releases.
