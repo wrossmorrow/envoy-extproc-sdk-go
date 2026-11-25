@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
@@ -959,20 +958,4 @@ func (rc *RequestContext) ClearBody() error {
 		return err
 	}
 	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(0))})
-}
-
-// JUST TESTING, NOT REAL
-
-const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-func randomString(length int) string {
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[rand.IntN(len(charset))]
-	}
-	return string(b)
-}
-
-func (rc *RequestContext) RandomBodyMutationTestingAgenticReview() error {
-	return rc.ReplaceBody([]byte(randomString(42)))
 }
