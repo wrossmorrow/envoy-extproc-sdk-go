@@ -6,7 +6,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: ./.github/actions/agent-review
+      - uses: wrossmorrow/github-agent-runner/action@main
         with:
           instructions: |
             Review the diff against ${{ github.base_ref }}.
