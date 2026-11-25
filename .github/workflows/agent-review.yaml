@@ -1,0 +1,15 @@
+on: [pull_request]
+jobs:
+  agent-review:
+    runs-on: agentic-go-review
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/agent-review
+        with:
+          instructions: |
+            Review the diff against ${{ github.base_ref }}.
+            Verify any new exported functions have corresponding unit tests.
+          fail-on: error
+          output: pr-review
