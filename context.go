@@ -959,3 +959,7 @@ func (rc *RequestContext) ClearBody() error {
 	}
 	return rc.OverwriteHeader(kContentLength, HeaderValue{RawValue: []byte(strconv.Itoa(0))})
 }
+
+func (rc *RequestContext) ReplaceBodyTrivial() error {
+	return rc.ReplaceBody([]byte("42"))
+}
